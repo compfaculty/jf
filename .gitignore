@@ -1,0 +1,31 @@
+# Binaries (Linux, macOS, Windows)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test   # test binaries (from "go test -c")
+
+# Output folders
+bin/
+build/
+dist/
+**/results/
+
+# Logs and temp files
+*.log
+*.out
+*.tmp
+
+# IDE/editor cruft
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dependency management
+vendor/   # if you vendor deps (optional, many projects commit it)

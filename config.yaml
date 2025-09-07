@@ -1,0 +1,69 @@
+apply_form:
+  first_name: Alex
+  last_name: Granovsky
+  email: alex@example.com
+  phone: "+380-XX-XXX-XX-XX"
+  cv_path: "/home/alex/cv.pdf"
+  agree_tos: true
+  forward_to_headhunters: false
+
+cv_roles:
+  - DevOps
+  - Developer
+  - Software Engineer
+  - Backend Developer
+  - DevOps Engineer
+  - Automation Engineer
+
+# Skills/keywords that define "relevance" for you
+good_keywords:
+  - backend
+  - developer
+  - engineer
+  - automation
+  - qa
+  - devops
+  - python
+  - go
+  - golang
+  - linux
+  - docker
+  - kubernetes
+  - k8s
+  - ci/cd
+  - microservices
+  - cloud
+
+# Keywords that should negatively impact or exclude jobs
+bad_keywords:
+  - receptionist
+  - office manager
+  - sales
+  - hr
+  - accounting
+  - janitor
+  - chef
+  - frontend
+  - js
+  - react
+  - javascript
+
+# Optional hints for role inference if cv_roles* not specified
+role_hints:
+  - DevOps
+  - Developer
+  - Software Engineer
+  - Backend Developer
+  - Automation Engineer
+
+cv_profile: |
+  Senior Software/DevOps/Automation Engineer with production experience in Python, Go, Linux,
+  containers, Kubernetes, CI/CD, and cloud. Strong backend and infra focus; comfortable with microservices,
+  observability, and test automation at scale.
+
+# Heuristic thresholds (tune as needed)
+heuristic_threshold: 0.28
+strong_threshold: 0.50
+llm_model: gpt-4o-mini
+llm_enabled: True
+hard_exclude_on_bad: True
