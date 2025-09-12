@@ -1,11 +1,12 @@
+// Package repo provides a tiny SQLite repository for companies and jobs.
 package repo
 
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,8 @@ type SQLiteRepo struct {
 	debug bool
 }
 
-// NewSQLite opens the DB, falling back to DELETE journal if WAL doesn't work
+// NewSQLite opens the DB with preferred journal mode (default WAL) and falls
+// back to DELETE if needed. No migrations are performed—schema is created fresh.
 func NewSQLite(path string) (*SQLiteRepo, error) {
 	logger := log.Default()
 	debug := isTruthy(os.Getenv("JF_DB_DEBUG"))
@@ -42,7 +44,7 @@ func NewSQLite(path string) (*SQLiteRepo, error) {
 	r := &SQLiteRepo{db: db, log: logger, debug: debug}
 	r.infof("DB open path=%q driver=modernc.org/sqlite journal=%s debug=%v", path, usedMode, debug)
 
-	// health check (already done in openSQLiteWithFallback for the chosen mode, but keep a full timeout)
+	// health check
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := r.db.PingContext(ctx); err != nil {
@@ -55,9 +57,18 @@ func NewSQLite(path string) (*SQLiteRepo, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	r.infof("DB migrate ok")
+	r.infof("DB schema ensured")
 	return r, nil
 }
+
+func (r *SQLiteRepo) Close() error {
+	r.infof("DB close")
+	return r.db.Close()
+}
+
+// ----------------------------------------------------------------------------
+// Configuration & open helpers
+// ----------------------------------------------------------------------------
 
 func journalFromEnv() string {
 	s := strings.ToUpper(strings.TrimSpace(os.Getenv("JF_SQLITE_JOURNAL")))
@@ -104,43 +115,57 @@ func openSQLiteWithMode(path, journal string) (*sql.DB, error) {
 	return sql.Open("sqlite", dsn)
 }
 
-func (r *SQLiteRepo) Close() error {
-	r.infof("DB close")
-	return r.db.Close()
-}
+// ----------------------------------------------------------------------------
+// Schema (fresh DB, no migrations/backfills)
+// ----------------------------------------------------------------------------
 
 func (r *SQLiteRepo) migrate() error {
-	schema := `
+	// Base schema for a fresh DB (no migrations/backfills).
+	//goland:noinspection SqlResolve,SqlNoDataSourceInspection,SqlDialectInspection
+	const schema = `
 CREATE TABLE IF NOT EXISTS companies(
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
   careers_url TEXT NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1,
-  created_at TIMESTAMP NOT NULL,
-  updated_at TIMESTAMP NOT NULL
+  active      INTEGER NOT NULL DEFAULT 1,
+  apply_email TEXT NOT NULL DEFAULT '', 
+  created_at  TIMESTAMP NOT NULL,
+  updated_at  TIMESTAMP NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS companies_name_uq ON companies(name);
 
 CREATE TABLE IF NOT EXISTS jobs(
-  id TEXT PRIMARY KEY,
-  company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  url TEXT NOT NULL,
-  location TEXT,
-  description TEXT,
+  id            TEXT PRIMARY KEY,
+  company_id    TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  title         TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  canonical_url TEXT NOT NULL DEFAULT '',
+  location      TEXT,
+  description   TEXT,
   discovered_at TIMESTAMP NOT NULL,
-  applied INTEGER NOT NULL DEFAULT 0,
-  applied_at TIMESTAMP
+  applied       INTEGER NOT NULL DEFAULT 0,
+  applied_at    TIMESTAMP
 );
-CREATE UNIQUE INDEX IF NOT EXISTS jobs_url_uq ON jobs(url);
+
+/* One canonicalized posting per company */
+CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_company_canon_uq
+  ON jobs(company_id, canonical_url);
+
+/* Helpful read performance indices */
+CREATE INDEX IF NOT EXISTS idx_jobs_discovered_at ON jobs(discovered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_company_id    ON jobs(company_id);
 `
 	start := time.Now()
-	_, err := r.exec(context.Background(), schema)
+	if _, err := r.exec(context.Background(), schema); err != nil {
+		return err
+	}
 	r.debugf("migrate took %s", time.Since(start))
-	return err
+	return nil
 }
 
-// --- Companies ---
+// ----------------------------------------------------------------------------
+// Companies
+// ----------------------------------------------------------------------------
 
 // UpsertCompany keeps conflict target on id (useful if you already know IDs).
 func (r *SQLiteRepo) UpsertCompany(ctx context.Context, c *models.Company) error {
@@ -153,6 +178,7 @@ func (r *SQLiteRepo) UpsertCompany(ctx context.Context, c *models.Company) error
 	}
 	c.UpdatedAt = now
 
+	//goland:noinspection SqlResolve
 	q := `
 INSERT INTO companies(id,name,careers_url,active,created_at,updated_at)
 VALUES(?,?,?,?,?,?)
@@ -185,6 +211,7 @@ func (r *SQLiteRepo) UpsertCompanyByName(ctx context.Context, c *models.Company)
 	}
 	c.UpdatedAt = now
 
+	//goland:noinspection SqlResolve
 	q := `
 INSERT INTO companies(id,name,careers_url,active,created_at,updated_at)
 VALUES(?,?,?,?,?,?)
@@ -205,7 +232,8 @@ ON CONFLICT(name) DO UPDATE SET
 }
 
 func (r *SQLiteRepo) ListCompanies(ctx context.Context) ([]models.Company, error) {
-	q := `SELECT id,name,careers_url,active,created_at,updated_at FROM companies WHERE active=1 ORDER BY name`
+	//goland:noinspection SqlResolve
+	const q = `SELECT id,name,careers_url,active,created_at,updated_at FROM companies WHERE active=1 ORDER BY name`
 	start := time.Now()
 	rows, err := r.query(ctx, q)
 	if err != nil {
@@ -232,7 +260,9 @@ func (r *SQLiteRepo) ListCompanies(ctx context.Context) ([]models.Company, error
 	return out, nil
 }
 
-// --- Jobs ---
+// ----------------------------------------------------------------------------
+// Jobs
+// ----------------------------------------------------------------------------
 
 func (r *SQLiteRepo) UpsertJob(ctx context.Context, j *models.Job) error {
 	if j.ID == "" {
@@ -241,27 +271,34 @@ func (r *SQLiteRepo) UpsertJob(ctx context.Context, j *models.Job) error {
 	if j.DiscoveredAt.IsZero() {
 		j.DiscoveredAt = time.Now().UTC()
 	}
+
+	// compute canonical URL for uniqueness
+	canon := canonicalizeURL(j.URL)
+
+	//goland:noinspection SqlResolve
 	q := `
-INSERT INTO jobs(id,company_id,title,url,location,description,discovered_at,applied,applied_at)
-VALUES(?,?,?,?,?,?,?,?,?)
-ON CONFLICT(url) DO UPDATE SET
+INSERT INTO jobs(id,company_id,title,url,canonical_url,location,description,discovered_at,applied,applied_at)
+VALUES(?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(company_id, canonical_url) DO UPDATE SET
   title=excluded.title,
+  url=excluded.url,
   location=excluded.location,
   description=excluded.description
 `
 	start := time.Now()
 	res, err := r.exec(ctx, q,
-		j.ID, j.CompanyID, j.Title, j.URL, j.Location, j.Description, j.DiscoveredAt, boolToInt(j.Applied), j.AppliedAt)
+		j.ID, j.CompanyID, j.Title, j.URL, canon, j.Location, j.Description, j.DiscoveredAt, boolToInt(j.Applied), j.AppliedAt)
 	dur := time.Since(start)
 	if err != nil {
-		r.infof("UpsertJob err url=%q company_id=%s dur=%s err=%v", j.URL, j.CompanyID, dur, err)
+		r.infof("UpsertJob err url=%q canon=%q company_id=%s dur=%s err=%v", j.URL, canon, j.CompanyID, dur, err)
 		return err
 	}
 	ra := rowsAffected(res)
-	r.debugf("UpsertJob ok url=%q company_id=%s rows=%d dur=%s", j.URL, j.CompanyID, ra, dur)
+	r.debugf("UpsertJob ok url=%q canon=%q company_id=%s rows=%d dur=%s", j.URL, canon, j.CompanyID, ra, dur)
 	return nil
 }
 
+//goland:noinspection SqlResolve,SqlNoDataSourceInspection,SqlDialectInspection
 func (r *SQLiteRepo) ApplyJobs(ctx context.Context, ids []string) (int64, error) {
 	if len(ids) == 0 {
 		r.debugf("ApplyJobs no-op (empty ids)")
@@ -293,49 +330,87 @@ func (r *SQLiteRepo) ApplyJobs(ctx context.Context, ids []string) (int64, error)
 	return n, nil
 }
 
-func (r *SQLiteRepo) ListJobs(ctx context.Context, q models.JobQuery) ([]models.Job, error) {
-	where := []string{"1=1"}
-	args := []any{}
-	if q.CompanyID != "" {
-		where = append(where, "company_id=?")
-		args = append(args, q.CompanyID)
-	}
-	if q.Q != "" {
-		where = append(where, "(title LIKE ? OR description LIKE ?)")
-		args = append(args, "%"+q.Q+"%", "%"+q.Q+"%")
-	}
+// ListJobsPage returns jobs for the query and the total count for pagination.
+//
+//goland:noinspection SqlResolve,SqlNoDataSourceInspection,SqlDialectInspection
+func (r *SQLiteRepo) ListJobsPage(ctx context.Context, q models.JobQuery) ([]models.Job, int, error) {
+	// Defaults & bounds
 	limit := q.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 100
-	}
 	offset := q.Offset
+	if limit <= 0 || limit > 200 {
+		limit = 25
+	}
 	if offset < 0 {
 		offset = 0
 	}
-	query := fmt.Sprintf(`
-SELECT id,company_id,title,url,location,description,discovered_at,applied,applied_at
-FROM jobs
-WHERE %s
-ORDER BY discovered_at DESC
-LIMIT ? OFFSET ?`, strings.Join(where, " AND "))
-	args = append(args, limit, offset)
 
-	start := time.Now()
-	rows, err := r.query(ctx, query, args...)
+	// WHERE builder
+	where := make([]string, 0, 4)
+	args := make([]any, 0, 8)
+
+	if q.CompanyID != "" {
+		where = append(where, "j.company_id = ?")
+		args = append(args, q.CompanyID)
+	}
+
+	if q.Q != "" {
+		like := "%" + q.Q + "%"
+		where = append(where, "(j.title LIKE ? OR j.description LIKE ? OR j.location LIKE ? OR c.name LIKE ?)")
+		args = append(args, like, like, like, like)
+	}
+
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = "WHERE " + strings.Join(where, " AND ")
+	}
+
+	// COUNT(*) for total (join to respect same filters)
+	countSQL := fmt.Sprintf(`
+SELECT COUNT(*)
+FROM jobs j
+JOIN companies c ON c.id = j.company_id
+%s`, whereSQL)
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Page query with company name
+	pageSQL := fmt.Sprintf(`
+SELECT j.id,
+       j.company_id,
+       c.name as company_name,
+       j.title,
+       j.url,
+       j.location,
+       j.description,
+       j.discovered_at,
+       j.applied,
+       j.applied_at
+FROM jobs j
+JOIN companies c ON c.id = j.company_id
+%s
+ORDER BY j.discovered_at DESC
+LIMIT ? OFFSET ?`, whereSQL)
+
+	pageArgs := append(append([]any{}, args...), limit, offset)
+	rows, err := r.db.QueryContext(ctx, pageSQL, pageArgs...)
 	if err != nil {
-		r.infof("ListJobs err q=%q company_id=%s err=%v", q.Q, q.CompanyID, err)
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var out []models.Job
-	var n int
+	out := make([]models.Job, 0, limit)
 	for rows.Next() {
 		var j models.Job
 		var appliedInt int
 		var appliedAt sql.NullTime
-		if err := rows.Scan(&j.ID, &j.CompanyID, &j.Title, &j.URL, &j.Location, &j.Description, &j.DiscoveredAt, &appliedInt, &appliedAt); err != nil {
-			return nil, err
+		if err = rows.Scan(
+			&j.ID, &j.CompanyID, &j.CompanyName, &j.Title, &j.URL, &j.Location, &j.Description,
+			&j.DiscoveredAt, &appliedInt, &appliedAt,
+		); err != nil {
+			return nil, 0, err
 		}
 		j.Applied = appliedInt == 1
 		if appliedAt.Valid {
@@ -343,50 +418,56 @@ LIMIT ? OFFSET ?`, strings.Join(where, " AND "))
 			j.AppliedAt = &t
 		}
 		out = append(out, j)
-		n++
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
 	}
-	r.debugf("ListJobs ok count=%d dur=%s params={company_id=%s q=%q limit=%d offset=%d}", n, time.Since(start), q.CompanyID, q.Q, limit, offset)
-	return out, nil
+
+	return out, total, nil
 }
 
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
+// ListJobs (Optional) Keep the old method for backward compatibility.
+func (r *SQLiteRepo) ListJobs(ctx context.Context, q models.JobQuery) ([]models.Job, error) {
+	items, _, err := r.ListJobsPage(ctx, q)
+	return items, err
 }
 
-// SeedCompanies loads the embedded JSON list and upserts by name.
+// DeleteJobs hard-deletes jobs by IDs. Returns number of rows deleted.
+func (r *SQLiteRepo) DeleteJobs(ctx context.Context, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
+
+	//goland:noinspection SqlResolve
+	q := fmt.Sprintf(`DELETE FROM jobs WHERE id IN (%s)`, placeholders)
+
+	res, err := r.db.ExecContext(ctx, q, anySlice(ids)...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// SeedCompanies loads the embedded list and upserts by name.
 func SeedCompanies(r *SQLiteRepo) error {
-	type entry struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	}
-
-	var list []entry
-	if err := json.Unmarshal([]byte(embeddedCompaniesJSON), &list); err != nil {
-		return fmt.Errorf("seed: bad embedded JSON: %w", err)
-	}
-
-	seen := make(map[string]struct{}, len(list))
+	seen := make(map[string]struct{}, len(embeddedCompanies))
 	ctx := context.Background()
 	added, skipped := 0, 0
 
-	for _, e := range list {
+	for _, e := range embeddedCompanies {
 		name := strings.TrimSpace(e.Name)
 		url := strings.TrimSpace(e.URL)
 		if name == "" || url == "" {
 			skipped++
 			continue
 		}
-		key := strings.ToLower(name)
-		if _, ok := seen[key]; ok {
-			continue // dedupe JSON
+		if _, ok := seen[name]; ok {
+			continue
 		}
-		seen[key] = struct{}{}
+		seen[name] = struct{}{}
 
 		c := models.Company{
 			Name:       name,
@@ -399,11 +480,13 @@ func SeedCompanies(r *SQLiteRepo) error {
 		added++
 	}
 
-	r.infof("SeedCompanies loaded=%d skipped=%d total_in_json=%d", added, skipped, len(list))
+	r.infof("SeedCompanies loaded=%d skipped=%d total_in_list=%d", added, skipped, len(embeddedCompanies))
 	return nil
 }
 
-// --- internal helpers ---
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
 
 func (r *SQLiteRepo) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	start := time.Now()
@@ -476,31 +559,46 @@ func isTruthy(v string) bool {
 	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
-// embeddedCompaniesJSON is compiled into the binary and not served anywhere.
-const embeddedCompaniesJSON = `[
-  { "name": "Secret TLV", "url": "https://jobs.secrettelaviv.com/" },
-  { "name": "AI21", "url": "https://www.ai21.com/careers/" },
-  { "name": "Agora Real", "url": "https://agorareal.com/career" },
-  { "name": "Arbe Robotics", "url": "https://arberobotics.com/career/" },
-  { "name": "Buildots", "url": "https://buildots.com/careers/co/development/" },
-  { "name": "C2A Security", "url": "https://c2a-sec.com/careers/" },
-  { "name": "Carbyne", "url": "https://carbyne.com/company/careers/" },
-  { "name": "Check Point", "url": "https://careers.checkpoint.com/index.php?m=cpcareers&a=search" },
-  { "name": "Kornit", "url": "https://careers.kornit.com/all-positions/" },
-  { "name": "Mobileye", "url": "https://careers.mobileye.com/jobs" },
-  { "name": "Kaltura", "url": "https://corp.kaltura.com/company/careers/" },
-  { "name": "Double AI", "url": "https://doubleai.com/careers/" },
-  { "name": "DriveNets", "url": "https://drivenets.com/careers/" },
-  { "name": "Hailo", "url": "https://hailo.ai/company-overview/careers/" },
-  { "name": "JFrog", "url": "https://join.jfrog.com/positions/" },
-  { "name": "Noma Security", "url": "https://noma.security/careers/" },
-  { "name": "ParaZero", "url": "https://parazero.com/careers/" },
-  { "name": "Pentera", "url": "https://pentera.io/careers/" },
-  { "name": "Perion", "url": "https://perion.com/careers/" },
-  { "name": "40Seas", "url": "https://www.40seas.com/careers#positions" },
-  { "name": "Agrematch", "url": "https://www.agrematch.com/careers" },
-  { "name": "Aidoc", "url": "https://www.aidoc.com/about/careers/" },
-  { "name": "Akeyless", "url": "https://www.akeyless.io/careers/#positions" },
-  { "name": "Allot", "url": "https://www.allot.com/careers/search/" },
-  { "name": "Anecdotes", "url": "https://www.anecdotes.ai/careers" }
-]`
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// anySlice converts []string to []any for Exec args.
+func anySlice(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
+}
+
+// --- URL canonicalization used for DB uniqueness ---
+// Strips fragments, lowercases host, removes utm_* query params, trims trailing slash in path.
+func canonicalizeURL(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" {
+		return ""
+	}
+	uu, err := url.Parse(u)
+	if err != nil {
+		return strings.ToLower(u)
+	}
+	uu.Fragment = ""
+
+	q := uu.Query()
+	for k := range q {
+		if strings.HasPrefix(strings.ToLower(k), "utm_") {
+			q.Del(k)
+		}
+	}
+	uu.RawQuery = q.Encode()
+	uu.Host = strings.ToLower(uu.Host)
+	// normalize trailing slash
+	if strings.HasSuffix(uu.Path, "/") {
+		uu.Path = strings.TrimRight(uu.Path, "/")
+	}
+	return uu.String()
+}

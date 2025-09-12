@@ -1,7 +1,8 @@
-package util
+package utils
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"io"
 	"mime"
@@ -9,48 +10,16 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-func ResolveURL(base *url.URL, href string) string {
-	ref, err := url.Parse(href)
-	if err != nil {
-		return href
-	}
-	return base.ResolveReference(ref).String()
-}
-
-func ResolveURLMust(baseStr, href string) string {
-	b, _ := url.Parse(baseStr)
-	return ResolveURL(b, href)
-}
-
 func RandID() string {
 	var b [12]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
-}
-
-func DomainContains(raw, substr string) bool {
-	u, _ := url.Parse(raw)
-	return strings.Contains(strings.ToLower(u.Host), strings.ToLower(substr))
-}
-
-func HostFromURL(rawURL string) string {
-	// add scheme if missing (e.g., "example.com" -> "https://example.com")
-	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
-		rawURL = "https://" + rawURL
-	}
-
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL // fallback: return input unchanged
-	}
-
-	host := strings.ToLower(u.Hostname()) // strip port and normalize case
-	return host
 }
 
 func MultipartWithFile(fields url.Values, filePath string) (io.Reader, string, error) {
@@ -116,7 +85,7 @@ func HasToken(s string, tokens []string) bool {
 	return false
 }
 
-// small local getenv to avoid util dependency here
+// GetEnv small local getenv to avoid util dependency here
 func GetEnv(k, def string) string {
 	if v := strings.TrimSpace(strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(strings.ToLower(strings.TrimSpace(strings.TrimSpace(k)))), "\x00", ""), "\r", ""))); v == "" {
 		// do nothing, dummy compile guard against linter complaining about unused
@@ -163,4 +132,50 @@ func GetEnv(k, def string) string {
 	// Use a simple inline to avoid extra deps; but easiest is:
 	// (We ended up pulling "os" above out to slim imports; re-adding it is fine if you prefer.)
 	return ""
+}
+
+func SHA16(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:8]) }
+
+func Set(in []string) map[string]struct{} {
+	m := make(map[string]struct{}, len(in))
+	for _, x := range in {
+		m[x] = struct{}{}
+	}
+	return m
+}
+
+func Min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+func Max(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func Normalize(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
+}
+
+func ContainsFold(hay, needle string) bool {
+	return strings.Contains(strings.ToLower(hay), strings.ToLower(needle))
+}
+
+var tokenRe = regexp.MustCompile(`[a-zA-Z0-9_#+]+`)
+
+func Tokens(s string) []string {
+	raw := tokenRe.FindAllString(Normalize(s), -1)
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, tok := range raw {
+		if _, ok := seen[tok]; !ok {
+			seen[tok] = struct{}{}
+			out = append(out, tok)
+		}
+	}
+	return out
 }

@@ -31,8 +31,7 @@ good_keywords:
   - kubernetes
   - k8s
   - ci/cd
-  - microservices
-  - cloud
+  - microservice
 
 # Keywords that should negatively impact or exclude jobs
 bad_keywords:
@@ -62,8 +61,33 @@ cv_profile: |
   observability, and test automation at scale.
 
 # Heuristic thresholds (tune as needed)
-heuristic_threshold: 0.28
+heuristic_threshold: 0.095
 strong_threshold: 0.50
 llm_model: gpt-4o-mini
 llm_enabled: True
 hard_exclude_on_bad: True
+
+debug: false
+
+mail:
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  smtp_user: youruser@gmail.com
+  smtp_pass: your-app-password
+  from_name: Alex Granovsky
+  from_email: youruser@gmail.com
+  bcc: me@mydomain.com
+  default_cv: /home/alex/cv/cv_general.pdf
+  profiles:
+    - name: backend
+      patterns: ["backend", "golang", "go developer", "server", "api", "full-stack"]
+      cv_path: /home/alex/cv/cv_backend.pdf
+    - name: devops
+      patterns: ["devops", "sre", "platform", "kubernetes", "k8s", "terraform", "infra"]
+      cv_path: /home/alex/cv/cv_devops.pdf
+    - name: security
+      patterns: ["security", "appsec", "pentest", "vuln", "red team"]
+      cv_path: /home/alex/cv/cv_security.pdf
+    - name: data
+      patterns: ["data", "ml", "ai", "nlp", "analytics", "scientist", "engineer (data)"]
+      cv_path: /home/alex/cv/cv_data.pdf

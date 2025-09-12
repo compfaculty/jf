@@ -114,31 +114,7 @@ docker-run: ## run container with host ./data bind-mounted as /data
 		-e JF_SQLITE_JOURNAL="$(SQLITE_JOURNAL)" \
 		$(IMAGE)
 
-# Windows PowerShell friendly run (uses PowerShell to expand absolute path)
-# Invoke with: make docker-run-win
-.PHONY: docker-run-win
-docker-run-win: ## run container on Windows PowerShell (bind-mount ./data)
-	@powershell -NoProfile -Command ^
-	  "New-Item -ItemType Directory -Force -Path '$(DB_DIR)' | Out-Null; ^
-	   $$p = (Get-Location).Path; ^
-	   docker run --rm -it ^
-	     -p 8080:8080 ^
-	     -v $$p\$(DB_DIR):/data:rw ^
-	     -v $$p:/app:ro ^
-	     -w /app ^
-	     -e JF_ADDR='$(ADDR)' ^
-	     -e JFV2_DB_PATH='/data/jobs.db' ^
-	     -e JF_CONFIG_PATH='$(CONFIG_PATH)' ^
-	     -e JF_LOG_LEVEL='$(LOG_LEVEL)' ^
-	     -e JF_DB_DEBUG='$(DB_DEBUG)' ^
-	     -e JF_HTTP_RPS='$(HTTP_RPS)' ^
-	     -e JF_HTTP_BURST='$(HTTP_BURST)' ^
-	     -e JF_SQLITE_JOURNAL='$(SQLITE_JOURNAL)' ^
-	     $(IMAGE)"
 
-# -----------------------------
-# Diagnostics
-# -----------------------------
 .PHONY: print-env
 print-env: ## print resolved environment used by 'run' target
 	@echo "ADDR              = $(ADDR)"

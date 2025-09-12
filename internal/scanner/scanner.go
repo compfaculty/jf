@@ -6,25 +6,29 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/pool"
 	"jf/internal/repo"
 	"jf/internal/scrape"
 )
 
 type Manager struct {
-	repo  *repo.SQLiteRepo
-	prefs *config.Config
-	http  scrape.Doer
+	repo *repo.SQLiteRepo
+	cfg  *config.Config
+	http scrape.Doer
+	bp   *pool.BrowserPool
+	wp   *pool.WorkerPool
 
 	mu     sync.Mutex
-	state  scanState
+	state  ScanState
 	cancel context.CancelFunc
 }
 
-type scanState struct {
+type ScanState struct {
 	Running   bool      `json:"running"`
 	StartedAt time.Time `json:"started_at"`
 	Percent   int       `json:"percent"`
@@ -33,14 +37,25 @@ type scanState struct {
 	Error     string    `json:"error"`
 }
 
-func NewManager(r *repo.SQLiteRepo, prefs *config.Config, httpDoer scrape.Doer) *Manager {
-	return &Manager{repo: r, prefs: prefs, http: httpDoer}
+// NewManager wires both pools. If you don’t need one of them yet, you can pass nil;
+// it’ll still work (we gate usage accordingly).
+func NewManager(r *repo.SQLiteRepo, cfg *config.Config, httpDoer scrape.Doer, bp *pool.BrowserPool, wp *pool.WorkerPool) *Manager {
+	return &Manager{repo: r, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
 }
 
-func (m *Manager) Status() scanState {
+func (m *Manager) Status() ScanState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.state
+}
+
+// Stop cancels an active scan (idempotent).
+func (m *Manager) Stop() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cancel != nil {
+		m.cancel()
+	}
 }
 
 func (m *Manager) StartScan() error {
@@ -51,7 +66,7 @@ func (m *Manager) StartScan() error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	m.state = scanState{
+	m.state = ScanState{
 		Running:   true,
 		StartedAt: time.Now().UTC(),
 		Percent:   0,
@@ -69,6 +84,7 @@ func (m *Manager) run(ctx context.Context) {
 		m.finishWithErr(err)
 		return
 	}
+
 	total := len(companies)
 	m.setTotal(total)
 	if total == 0 {
@@ -76,52 +92,74 @@ func (m *Manager) run(ctx context.Context) {
 		return
 	}
 
-	found := 0
-	for i, c := range companies {
-		select {
-		case <-ctx.Done():
-			m.finishWithErr(ctx.Err())
-			return
-		default:
+	var wg sync.WaitGroup
+	wg.Add(total)
+
+	var found int64 // total jobs
+	var done int64  // companies finished
+
+	for _, c := range companies {
+		c := c
+		runOne := func() {
+			defer wg.Done()
+
+			cctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+			defer cancel()
+
+			s := scrape.NewJobScraper(c, m.http, m.bp)
+
+			jobs, err := s.GetJobs(cctx, m.cfg)
+			if err != nil && cctx.Err() == nil {
+				m.appendWarn(fmt.Sprintf("%s: %v", c.Name, err))
+			}
+
+			newN := 0
+			for _, sj := range jobs {
+				select {
+				case <-cctx.Done():
+					m.appendWarn(fmt.Sprintf("%s: cancelled: %v", c.Name, cctx.Err()))
+					break
+				default:
+				}
+				j := models.Job{
+					CompanyID:   c.ID,
+					Title:       strings.TrimSpace(sj.Title),
+					URL:         strings.TrimSpace(sj.URL),
+					Location:    strings.TrimSpace(sj.Location),
+					Description: strings.TrimSpace(sj.Description),
+				}
+				//if j.URL == "" || j.Title == "" {
+				//	continue
+				//}
+				if err := m.repo.UpsertJob(cctx, &j); err != nil {
+					m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", c.Name, j.URL, err))
+					continue
+				}
+				newN++
+			}
+
+			totalFound := atomic.AddInt64(&found, int64(newN))
+			curDone := int(atomic.AddInt64(&done, 1))
+			pct := (curDone * 100) / total
+			m.setProgress(pct, int(totalFound))
+			log.Printf("[SCAN] %-22s jobs=%d (%d/%d, %d%%)", c.Name, newN, curDone, total, pct)
 		}
 
-		comp := scrape.Company{Name: c.Name, URL: c.CareersURL}
-		s := scrape.NewJobScraper(comp, m.http)
-
-		// Add a per-company timeout if you like:
-		cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-		jobs, err := s.GetJobs(cctx, m.prefs)
-		cancel()
-
-		if err != nil {
-			m.appendWarn(fmt.Sprintf("%s: %v", c.Name, err))
+		if m.wp != nil {
+			m.wp.Submit(runOne) // blocks when queue full → backpressure
+		} else {
+			runOne() // sequential fallback
 		}
-
-		newForCompany := 0
-		for _, sj := range jobs {
-			j := models.Job{
-				CompanyID:   c.ID,
-				Title:       strings.TrimSpace(sj.Title),
-				URL:         strings.TrimSpace(sj.URL),
-				Location:    strings.TrimSpace(sj.Location),
-				Description: strings.TrimSpace(sj.Description),
-			}
-			if j.URL == "" || j.Title == "" {
-				continue
-			}
-			if err := m.repo.UpsertJob(ctx, &j); err != nil {
-				m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", c.Name, j.URL, err))
-				continue
-			}
-			newForCompany++
-		}
-		found += newForCompany
-
-		m.setProgress(((i + 1) * 100 / total), found)
-		log.Printf("[SCAN] %-22s jobs=%d (%d/%d, %d%%)", c.Name, newForCompany, i+1, total, m.Status().Percent)
 	}
 
-	m.finishOK(100, found)
+	wg.Wait()
+
+	select {
+	case <-ctx.Done():
+		m.finishWithErr(ctx.Err())
+	default:
+		m.finishOK(100, int(atomic.LoadInt64(&found)))
+	}
 }
 
 func (m *Manager) setTotal(total int) {

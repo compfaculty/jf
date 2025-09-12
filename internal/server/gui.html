@@ -41,22 +41,48 @@
             transition: width .25s ease;
         }
 
+        /* Dense, table-like list rows */
         .row {
             display: grid;
-            grid-template-columns: 1fr 120px;
-            gap: 12px;
+            grid-template-columns: 28px 2fr 1.6fr 1fr 2fr 110px; /* ☑ | title | company/location | age | short url | status */
+            gap: 10px;
             align-items: center;
-            padding: 10px 0;
+            padding: 6px 0;
             border-bottom: 1px solid #3333;
         }
 
+        .cell {
+            min-width: 0;
+        }
+
+        /* allow ellipsis */
+        .ellipsis {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .title a {
+            text-decoration: none;
+        }
+
+        .meta-sm {
+            font-size: 12px;
+            opacity: .85;
+        }
+
+        .right {
+            text-align: right;
+        }
+
         .row h4 {
-            margin: 0 0 6px 0;
+            margin: 0;
+            font-size: 15px;
+            font-weight: 600;
         }
 
         .row p {
             margin: 0;
-            opacity: .8;
         }
 
         .actions {
@@ -95,6 +121,65 @@
             opacity: .8;
             font-size: 12px;
         }
+
+        .pager {
+            margin-top: 8px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .pager button {
+            padding: 6px 10px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            border: 1px solid #444;
+        }
+
+        .pill.applied {
+            border-color: #2e7d32;
+        }
+
+        .pill.new {
+            border-color: #555;
+        }
+
+        /* Responsive: collapse to two lines on narrow screens */
+        @media (max-width: 820px) {
+            .row {
+                grid-template-columns: 24px 1fr 1fr;
+                grid-auto-rows: auto;
+                row-gap: 6px;
+            }
+
+            .row .title {
+                grid-column: 2 / -1;
+            }
+
+            .row .co-loc {
+                grid-column: 2 / -1;
+            }
+
+            .row .age {
+                grid-column: 2 / 3;
+            }
+
+            .row .surl {
+                grid-column: 3 / -1;
+            }
+
+            .row .status {
+                grid-column: 2 / -1;
+                text-align: left;
+            }
+        }
     </style>
 </head>
 <body>
@@ -111,12 +196,21 @@
     </section>
 
     <section style="margin-top:20px;">
-        <div class="actions">
-            <input id="q" type="search" placeholder="Search title/description..."/>
+        <div class="actions" style="gap: 12px; flex-wrap: wrap;">
+            <input id="q" type="search" placeholder="Search title/description/company/location..."/>
             <button id="refreshBtn" class="secondary">Refresh</button>
             <button id="applyBtn" class="primary">Apply selected</button>
+            <button id="deleteBtn" class="secondary">Delete selected</button>
+            <span id="countText" class="muted"></span>
         </div>
+
         <div id="list"></div>
+
+        <div class="pager">
+            <button id="prevBtn" class="secondary">◀ Prev</button>
+            <button id="nextBtn" class="secondary">Next ▶</button>
+            <span id="pageInfo" class="muted"></span>
+        </div>
     </section>
 </main>
 
@@ -129,8 +223,16 @@
     const q = $("#q");
     const refreshBtn = $("#refreshBtn");
     const applyBtn = $("#applyBtn");
+    const deleteBtn = $("#deleteBtn");
+    const prevBtn = $("#prevBtn");
+    const nextBtn = $("#nextBtn");
+    const pageInfo = $("#pageInfo");
+    const countText = $("#countText");
 
     let pollTimer = null;
+    let limit = 25;
+    let offset = 0;
+    let total = 0;
 
     scanBtn.onclick = async () => {
         await fetch("/api/scan/start", {method: "POST"});
@@ -143,7 +245,7 @@
         const r = await fetch("/api/scan/status");
         const st = await r.json();
         barFill.style.width = (st.percent || 0) + "%";
-        let txt = st.running ? `Scanning: ${st.percent}% (${st.found} new)` : `Idle: ${st.percent}% (${st.found} new)`;
+        let txt = st.running ? `🔎 Scanning: ${st.percent}% (${st.found} new)` : `Idle: ${st.percent}% (${st.found} new)`;
         if (st.error) txt += ` — error: ${st.error}`;
         statusText.textContent = txt;
         if (!st.running && pollTimer) {
@@ -153,14 +255,42 @@
         }
     }
 
-    refreshBtn.onclick = () => loadJobs();
+    refreshBtn.onclick = () => {
+        offset = 0;
+        loadJobs();
+    };
+    prevBtn.onclick = () => {
+        offset = Math.max(0, offset - limit);
+        loadJobs();
+    };
+    nextBtn.onclick = () => {
+        if (offset + limit < total) {
+            offset += limit;
+            loadJobs();
+        }
+    };
 
     async function loadJobs() {
         const params = new URLSearchParams();
         if (q.value.trim()) params.set("q", q.value.trim());
+        params.set("limit", String(limit));
+        params.set("offset", String(offset));
         const r = await fetch("/api/jobs?" + params.toString());
-        const jobs = await r.json();
-        renderJobs(jobs);
+        const res = await r.json();
+        total = res.total || 0;
+        limit = res.limit || limit;
+        offset = res.offset || offset;
+        renderJobs(res.items || []);
+        updatePager();
+    }
+
+    function updatePager() {
+        const page = Math.floor(offset / limit) + 1;
+        const pages = Math.max(1, Math.ceil(total / limit));
+        pageInfo.textContent = `Page ${page} / ${pages}`;
+        countText.textContent = `Total: ${total}`;
+        prevBtn.disabled = offset <= 0;
+        nextBtn.disabled = offset + limit >= total;
     }
 
     function renderJobs(jobs) {
@@ -169,26 +299,62 @@
             list.innerHTML = `<p class="muted">No jobs yet.</p>`;
             return;
         }
-        jobs.forEach(j => {
-            const div = document.createElement("div");
-            div.className = "row";
-            div.innerHTML = `
-      <div>
-        <h4><a href="${j.url}" target="_blank" rel="noopener">${escapeHtml(j.title || "(no title)")}</a></h4>
-        <p>${escapeHtml(j.location || "")}</p>
-        <p class="muted">${new Date(j.discovered_at).toLocaleString()} ${j.applied ? "• applied" : ""}</p>
-      </div>
-      <div class="actions">
-        <input type="checkbox" data-id="${j.id}" ${j.applied ? "disabled" : ""}/>
-      </div>
-    `;
-            list.appendChild(div);
-        });
+        for (const j of jobs) {
+            const applied = !!j.applied;
+            const statusEmoji = applied ? "✅" : "🆕";
+            const company = j.company_name || "";
+            const loc = j.location || "";
+            const url = j.url || "";
+            const short = shortUrl(url, 36)
+            const discovered = j.discovered_at ? new Date(j.discovered_at) : null;
+            
+            const when = discovered ? `${ago(discovered)} ago` : "";
+            const descSnippet = snippet(j.description || "", 160);
+
+            const row = document.createElement("div");
+            row.className = "row";
+
+            row.innerHTML = `
+        <!-- ☑ -->
+        <div class="cell">
+          <input type="checkbox" title="Select" data-id="${j.id}" ${applied ? "disabled" : ""}/>
+        </div>
+
+        <!-- Title (with tooltip from description) -->
+        <div class="cell title ellipsis" title="${escapeHtml(descSnippet)}">
+          <h4>${statusEmoji} <a href="${url}" target="_blank" rel="noopener">${escapeHtml(j.title || "(no title)")}</a></h4>
+        </div>
+
+        <!-- Company / Location -->
+        <div class="cell co-loc ellipsis meta-sm" title="${escapeHtml(company + (loc ? ` — ${loc}` : ""))}">
+          🏢 ${escapeHtml(company)} ${loc ? ` • 📍 ${escapeHtml(loc)}` : ""}
+        </div>
+
+        <!-- Discovered age -->
+        <div class="cell age meta-sm right" title="${discovered ? discovered.toLocaleString() : ""}">
+          🕒 ${when || ""}
+        </div>
+
+        <!-- Short URL (host + trimmed path) -->
+        <div class="cell surl ellipsis meta-sm" title="${escapeHtml(url)}">
+          🔗 <a href="${url}" target="_blank" rel="noopener" class="ellipsis">${escapeHtml(short)}</a>
+        </div>
+
+        <!-- Status pill -->
+        <div class="cell status right">
+          ${applied
+                ? `<span class="pill applied">Applied</span>`
+                : `<span class="pill new">Not applied</span>`
+            }
+        </div>
+      `;
+
+            list.appendChild(row);
+        }
     }
 
     applyBtn.onclick = async () => {
-        const ids = [...document.querySelectorAll('input[type="checkbox"]:checked')]
-            .map(x => x.getAttribute("data-id"));
+        const ids = selectedIDs();
         if (!ids.length) return;
         const r = await fetch("/api/apply", {
             method: "POST",
@@ -200,16 +366,77 @@
         alert(`Applied to ${res.updated} job(s).`);
     };
 
+    deleteBtn.onclick = async () => {
+        const ids = selectedIDs(true); // include applied for deletion
+        if (!ids.length) return;
+        if (!confirm(`Delete ${ids.length} job(s)? This cannot be undone.`)) return;
+        const r = await fetch("/api/jobs/delete", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ids})
+        });
+        const res = await r.json();
+        await loadJobs();
+        alert(`Deleted ${res.deleted} job(s).`);
+    };
+
+    function selectedIDs(includeApplied = false) {
+        const boxes = [...document.querySelectorAll('input[type="checkbox"]')];
+        const sel = [];
+        for (const b of boxes) {
+            if (b.checked || (includeApplied && b.disabled)) {
+                const id = b.getAttribute("data-id");
+                if (id) sel.push(id);
+            }
+        }
+        return sel;
+    }
+
+    // --- helpers ---
+
+    function shortUrl(u, max = 36) {
+        if (!u) return "";
+        try {
+            const url = new URL(u);
+            let text = url.host + url.pathname.replace(/\/+$/, "");
+            if (!text) text = url.host;
+            if (text.length > max) {
+                const keep = Math.max(6, Math.floor(max * 0.55));
+                const end = Math.max(8, max - keep - 1);
+                text = text.slice(0, keep) + "…" + text.slice(-end);
+            }
+            return text;
+        } catch {
+            return u.length > max ? u.slice(0, max - 1) + "…" : u;
+        }
+    }
+
+    function ago(d) {
+        const s = Math.floor((Date.now() - d.getTime()) / 1000);
+        if (s < 60) return `${s}s`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h`;
+        const days = Math.floor(h / 24);
+        if (days < 30) return `${days}d`;
+        const mo = Math.floor(days / 30);
+        return `${mo}mo`;
+    }
+
+    function snippet(s, n) {
+        if (!s) return "";
+        s = s.replace(/\s+/g, " ").trim();
+        return s.length > n ? s.slice(0, n - 1) + "…" : s;
+    }
+
     function escapeHtml(s) {
         return (s || "").replace(/[&<>"']/g, m => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
         }[m]));
     }
 
+    // initial load
     loadJobs();
 </script>
 </body>
