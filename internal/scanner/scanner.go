@@ -106,7 +106,7 @@ func (m *Manager) run(ctx context.Context) {
 			cctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 			defer cancel()
 
-			s := scrape.NewJobScraper(c, m.http, m.bp)
+			s := scrape.NewJobScraper(c, m.http, m.bp, m.wp)
 
 			jobs, err := s.GetJobs(cctx, m.cfg)
 			if err != nil && cctx.Err() == nil {

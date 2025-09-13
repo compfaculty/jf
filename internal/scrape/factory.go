@@ -32,7 +32,7 @@ type Browser interface {
 // NewJobScraper chooses a concrete scraper by careers host.
 // Pass nil for client to use the default robust httpx client.
 // Pass nil for browser if you don't want JS fallback in Generic.
-func NewJobScraper(c models.Company, client Doer, browser Browser) JobScraper {
+func NewJobScraper(c models.Company, client Doer, browser Browser, wp *pool.WorkerPool) JobScraper {
 	switch {
 	case strings.Contains(c.CareersURL, "secrettelaviv.com"):
 
@@ -44,6 +44,8 @@ func NewJobScraper(c models.Company, client Doer, browser Browser) JobScraper {
 		return NewAgrematch(c, client)
 	case strings.Contains(c.CareersURL, "ai21.com"):
 		return NewAi21(c, client)
+	case strings.Contains(c.CareersURL, "akeyless.io"):
+		return NewAkeyless(c, client, wp)
 	default:
 		// generic path: static first, optional browser fallback
 		return NewGeneric(c, client, browser)

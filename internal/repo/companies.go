@@ -10,7 +10,7 @@ var embeddedCompanies = []struct {
 	{"Agora Real", "https://agorareal.com/careers/"},
 	{"Aidoc", "https://www.aidoc.com/about/careers/"},
 	{"AI21", "https://www.ai21.com/careers/"},
-	//{"Akeyless", "https://www.akeyless.io/careers/#positions"},
+	{"Akeyless", "https://www.akeyless.io/careers/#positions"},
 	//{"Allot", "https://www.allot.com/careers/search/"},
 	//{"Amdocs", "https://jobs.amdocs.com/careers"},
 	//{"Anecdotes", "https://www.anecdotes.ai/careers"},
