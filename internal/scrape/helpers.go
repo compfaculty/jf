@@ -8,16 +8,6 @@ import (
 	"jf/internal/models"
 )
 
-func ensureTrailingSlash(p string) string {
-	if p == "" {
-		return "/"
-	}
-	if !strings.HasSuffix(p, "/") {
-		return p + "/"
-	}
-	return p
-}
-
 func normWS(s string) string {
 	return strings.TrimSpace(strings.Join(strings.Fields(s), " "))
 }
@@ -78,13 +68,6 @@ func dedupeScraped(in []models.ScrapedJob) []models.ScrapedJob {
 		out = append(out, j)
 	}
 	return out
-}
-
-func EnsureTrailingSlash(p string) string {
-	if p == "" || strings.HasSuffix(p, "/") {
-		return p
-	}
-	return p + "/"
 }
 
 // BadHref returns true for empty/anchor/scheme-junk and for common
