@@ -4,20 +4,74 @@
     <meta charset="utf-8"/>
     <title>Job Finder v2</title>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"/>
     <style>
         :root {
+            --bg: #0e0e0f;
+            --bg-elev: #17181a;
+            --fg: #e8e8ea;
+            --muted: #9aa0a6;
+            --brand: #4caf50;
+            --brand-600: #3e8e41;
+            --border: #2a2d31;
+            --red: #ff5c5c;
+            --amber: #f59e0b;
+            --focus: #7cc4ff;
+
             color-scheme: light dark;
         }
 
-        body {
-            font-family: system-ui, sans-serif;
-            margin: 0;
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #fff;
+                --bg-elev: #f7f7f8;
+                --fg: #111;
+                --muted: #5b5f63;
+                --brand: #2ea043;
+                --brand-600: #2a8c3b;
+                --border: #e7e7ea;
+                --focus: #0a84ff;
+            }
         }
 
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            background: var(--bg);
+            color: var(--fg);
+        }
+
+        /* Layout */
         header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 12px;
             padding: 12px 16px;
             background: #111;
             color: #fff;
+            border-bottom: 1px solid #0008;
+        }
+
+        header .title {
+            font-weight: 700;
+            letter-spacing: .2px;
+        }
+
+        header .sep {
+            flex: 1;
+        }
+
+        header .link {
+            color: inherit;
+            opacity: .85;
+            text-decoration: none;
         }
 
         main {
@@ -26,29 +80,49 @@
             margin: 0 auto;
         }
 
+        /* Controls */
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .toolbar .grow {
+            flex: 1 1 420px;
+        }
+
+        .toolbar .muted {
+            color: var(--muted);
+        }
+
         .bar {
             height: 10px;
             background: #ddd;
             border-radius: 6px;
             overflow: hidden;
             margin-top: 8px;
+            border: 1px solid var(--border);
         }
 
         .bar > div {
             height: 100%;
             width: 0%;
-            background: #4CAF50;
+            background: var(--brand);
             transition: width .25s ease;
         }
 
-        /* Dense, table-like list rows */
         .row {
             display: grid;
-            grid-template-columns: 28px 2fr 1.6fr 1fr 2fr 110px; /* ☑ | title | company/location | age | short url | status */
+            grid-template-columns: 28px 2fr 1.6fr 1fr 2fr 140px; /* ☑ | title | company/location | age | short url | status */
             gap: 10px;
             align-items: center;
-            padding: 6px 0;
-            border-bottom: 1px solid #3333;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .row:hover {
+            background: color-mix(in oklab, var(--bg) 92%, white 8%);
         }
 
         .cell {
@@ -63,11 +137,12 @@
 
         .title a {
             text-decoration: none;
+            color: inherit;
         }
 
         .meta-sm {
             font-size: 12px;
-            opacity: .85;
+            color: var(--muted);
         }
 
         .right {
@@ -92,37 +167,53 @@
 
         button {
             padding: 8px 12px;
-            border-radius: 8px;
-            border: none;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+            color: inherit;
             cursor: pointer;
+            transition: transform .02s ease-in, filter .15s ease;
         }
 
-        button.primary {
-            background: #4CAF50;
+        button:hover {
+            filter: brightness(1.05);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        button:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+        }
+
+        .primary {
+            background: var(--brand);
+            border-color: color-mix(in oklab, var(--brand) 80%, black 20%);
             color: #fff;
         }
 
-        button.secondary {
-            background: #333;
-            color: #fff;
+        .primary:hover {
+            background: var(--brand-600);
         }
 
         input[type="search"] {
             width: 100%;
-            padding: 8px 10px;
-            border-radius: 8px;
-            border: 1px solid #444;
-            background: transparent;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
             color: inherit;
         }
 
         .muted {
-            opacity: .8;
+            color: var(--muted);
             font-size: 12px;
         }
 
         .pager {
-            margin-top: 8px;
+            margin-top: 10px;
             display: flex;
             gap: 8px;
             align-items: center;
@@ -136,35 +227,68 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 2px 8px;
+            padding: 3px 10px;
             border-radius: 999px;
             font-size: 12px;
-            border: 1px solid #444;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
         }
 
         .pill.applied {
-            border-color: #2e7d32;
+            border-color: color-mix(in oklab, var(--brand) 60%, black 40%);
+            color: color-mix(in oklab, var(--brand) 85%, white 15%);
         }
 
         .pill.new {
-            border-color: #555;
+            border-color: var(--border);
         }
 
-        /* Hover card for full description */
+        /* Notifications */
+        .toast {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            z-index: 100;
+            max-width: 420px;
+            background: var(--bg-elev);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 14px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .25);
+        }
+
+        .toast h6 {
+            margin: 0 0 4px 0;
+            font-size: 13px;
+        }
+
+        .toast p {
+            margin: 0;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .toast.error {
+            border-color: color-mix(in oklab, var(--red) 50%, black 50%);
+        }
+
+        /* Hover card */
         .preview-card {
             position: fixed;
-            z-index: 9999;
+            z-index: 99;
             max-width: 520px;
             max-height: 380px;
             overflow: auto;
             padding: 12px 14px;
-            border-radius: 10px;
+            border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
             backdrop-filter: blur(6px);
             border: 1px solid rgba(120, 120, 120, .35);
-            pointer-events: none; /* don’t trap cursor */
+            pointer-events: none;
             font-size: 13px;
             line-height: 1.35;
+            opacity: 0;
+            transition: opacity .12s ease;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -202,7 +326,19 @@
             border-radius: 4px;
         }
 
-        /* Responsive collapse */
+        /* Utility */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
+        /* Responsive */
         @media (max-width: 820px) {
             .row {
                 grid-template-columns: 24px 1fr 1fr;
@@ -236,43 +372,103 @@
                 max-height: 50vh;
             }
         }
+
+        /* Focus styles */
+        :where(button, a, input[type="checkbox"], input[type="search"]) {
+            outline: none;
+        }
+
+        :where(button, a, input[type="checkbox"], input[type="search"]):focus-visible {
+            box-shadow: 0 0 0 3px color-mix(in oklab, var(--focus) 60%, transparent 40%);
+        }
+
+        /* Loading skeleton */
+        .skeleton {
+            background: linear-gradient(90deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, .16), rgba(255, 255, 255, .08));
+            background-size: 200% 100%;
+            animation: shimmer 1.2s infinite;
+            border-radius: 8px;
+            height: 12px;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: 200% 0;
+            }
+            100% {
+                background-position: -200% 0;
+            }
+        }
     </style>
 </head>
 <body>
-<header><strong>Job Finder v2</strong></header>
+<header>
+    <div class="title">Job Finder v2</div>
+    <span class="sep"></span>
+    <a class="link" href="#" id="helpLink" aria-label="Help">Help</a>
+</header>
 <main>
-    <section>
-        <div class="actions">
-            <button id="scanBtn" class="primary">Scan</button>
-            <div id="statusText" class="muted">Idle</div>
+    <section aria-labelledby="scan-heading">
+        <h2 id="scan-heading" class="sr-only">Scanning</h2>
+        <div class="toolbar">
+            <div class="actions">
+                <button id="scanBtn" class="primary" aria-live="polite">Scan</button>
+            </div>
+            <div id="statusText" class="muted" role="status" aria-live="polite">Idle</div>
+            <span class="sep"></span>
+            <label class="muted" for="limitSel">Page size</label>
+            <select id="limitSel" aria-label="Page size">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
         </div>
-        <div class="bar">
+        <div class="bar" aria-hidden="true">
             <div id="barFill"></div>
         </div>
     </section>
 
-    <section style="margin-top:20px;">
-        <div class="actions" style="gap: 12px; flex-wrap: wrap;">
-            <input id="q" type="search" placeholder="Search title/description/company/location..." spellcheck="false"
-                   data-ms-editor="true"/>
-            <button id="refreshBtn" class="secondary">Refresh</button>
-            <button id="applyBtn" class="primary">Apply selected</button>
-            <button id="deleteBtn" class="secondary">Delete selected</button>
-            <span id="countText" class="muted"></span>
+    <section style="margin-top:20px;" aria-labelledby="jobs-heading">
+        <h2 id="jobs-heading" class="sr-only">Jobs</h2>
+
+        <div class="toolbar">
+            <div class="grow">
+                <label class="sr-only" for="q">Search</label>
+                <input id="q" type="search" placeholder="Search title/description/company/location…" spellcheck="false"
+                       autocomplete="off"/>
+            </div>
+            <button id="refreshBtn">Refresh</button>
+            <button id="applyBtn" class="primary" disabled>Apply selected</button>
+            <button id="deleteBtn" disabled>Delete selected</button>
+            <span id="countText" class="muted" aria-live="polite"></span>
         </div>
 
-        <div id="list"></div>
+        <div class="actions" style="margin-top:8px; align-items:center; gap:12px;">
+            <label><input type="checkbox" id="selectAll"> <span class="muted">Select all on page</span></label>
+            <span id="selCount" class="muted">0 selected</span>
+        </div>
+
+        <div id="list" role="list" aria-label="Job results" style="margin-top:8px;"></div>
 
         <div class="pager">
-            <button id="prevBtn" class="secondary">◀ Prev</button>
-            <button id="nextBtn" class="secondary">Next ▶</button>
+            <button id="prevBtn">◀ Prev</button>
+            <button id="nextBtn">Next ▶</button>
             <span id="pageInfo" class="muted"></span>
         </div>
     </section>
 </main>
 
+<div id="toast" class="toast" hidden>
+    <h6 id="toastTitle"></h6>
+    <p id="toastMsg"></p>
+</div>
+
 <script>
+    // ------- DOM helpers -------
     const $ = s => document.querySelector(s);
+    const $$ = s => Array.from(document.querySelectorAll(s));
+
     const scanBtn = $("#scanBtn");
     const statusText = $("#statusText");
     const barFill = $("#barFill");
@@ -285,98 +481,137 @@
     const nextBtn = $("#nextBtn");
     const pageInfo = $("#pageInfo");
     const countText = $("#countText");
+    const selectAll = $("#selectAll");
+    const selCount = $("#selCount");
+    const limitSel = $("#limitSel");
 
+    // ------- State -------
     let pollTimer = null;
-    let limit = 25;
+    let limit = Number(localStorage.getItem("jf.limit")) || 25;
     let offset = 0;
     let total = 0;
+    let jobsAbort = null; // cancel in-flight /api/jobs
 
-    // Abort controller to cancel in-flight jobs queries (prevents race conditions while typing)
-    let jobsAbort = null;
+    // Apply stored page size
+    if ([10, 25, 50, 100].includes(limit)) limitSel.value = String(limit);
+    else limit = 25;
 
-    scanBtn.onclick = async () => {
-        await fetch("/api/scan/start", {method: "POST"});
-        statusText.textContent = "Starting scan...";
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(pollStatus, 600);
-    };
+    // ------- Scan -------
+    scanBtn.addEventListener('click', async () => {
+        try {
+            await fetchJSON('/api/scan/start', {method: 'POST'});
+            statusText.textContent = 'Starting scan…';
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(pollStatus, 600);
+            toast('Scan started', 'The scanner is running.');
+        } catch (e) {
+            toast('Failed to start scan', e.message || String(e), true);
+        }
+    });
 
     async function pollStatus() {
-        const r = await fetch("/api/scan/status");
-        const st = await r.json();
-        barFill.style.width = (st.percent || 0) + "%";
-        let txt = st.running ? `🔎 Scanning: ${st.percent}% (${st.found} new)` : `Idle: ${st.percent}% (${st.found} new)`;
-        if (st.error) txt += ` — error: ${st.error}`;
-        statusText.textContent = txt;
-        if (!st.running && pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
-            await loadJobs();
+        try {
+            const st = await fetchJSON('/api/scan/status');
+            barFill.style.width = (st.percent || 0) + '%';
+            let txt = st.running ? `🔎 Scanning: ${st.percent}% (${st.found} new)` : `Idle: ${st.percent}% (${st.found} new)`;
+            if (st.error) txt += ` — error: ${st.error}`;
+            statusText.textContent = txt;
+            if (!st.running && pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+                await loadJobs();
+            }
+        } catch (e) {
+            // Don’t spam errors; pause polling briefly
+            console.warn('pollStatus error', e);
         }
     }
 
-    refreshBtn.onclick = () => {
+    // ------- Paging & Search -------
+    limitSel.addEventListener('change', () => {
+        limit = Number(limitSel.value) || 25;
+        localStorage.setItem('jf.limit', String(limit));
         offset = 0;
         loadJobs();
-    };
-    prevBtn.onclick = () => {
+    });
+
+    refreshBtn.addEventListener('click', () => {
+        offset = 0;
+        loadJobs();
+    });
+    prevBtn.addEventListener('click', () => {
         offset = Math.max(0, offset - limit);
         loadJobs();
-    };
-    nextBtn.onclick = () => {
+    });
+    nextBtn.addEventListener('click', () => {
         if (offset + limit < total) {
             offset += limit;
             loadJobs();
         }
-    };
+    });
 
-    // --- Dynamic search-as-you-type (debounced) ---
+    // Deep-link search from URL
+    const urlParams = new URLSearchParams(location.search);
+    if (urlParams.has('q')) q.value = urlParams.get('q');
+
     const debounce = (fn, ms = 250) => {
         let t;
-        return (...args) => {
+        return (...a) => {
             clearTimeout(t);
-            t = setTimeout(() => fn(...args), ms);
+            t = setTimeout(() => fn(...a), ms);
         };
     };
 
-    // Update list as user types
-    q.addEventListener("input", debounce(() => {
+    q.addEventListener('input', debounce(() => {
         offset = 0;
+        syncQueryToURL();
         loadJobs();
     }, 250));
-
-    // Pressing Enter triggers immediate refresh
-    q.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
+    q.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
             e.preventDefault();
             offset = 0;
+            syncQueryToURL();
             loadJobs();
         }
     });
 
+    function syncQueryToURL() {
+        const u = new URL(location.href);
+        const v = q.value.trim();
+        if (v) u.searchParams.set('q', v); else u.searchParams.delete('q');
+        history.replaceState(null, '', u.toString());
+    }
+
+    // ------- Load Jobs -------
     async function loadJobs() {
+        selectAll.checked = false; // reset select all
+        updateSelectionState();
+
+        // Skeleton while loading
+        renderSkeletonRows();
+
         const params = new URLSearchParams();
         const qv = q.value.trim();
-        if (qv) params.set("q", qv);
-        params.set("limit", String(limit));
-        params.set("offset", String(offset));
+        if (qv) params.set('q', qv);
+        params.set('limit', String(limit));
+        params.set('offset', String(offset));
 
-        // cancel previous request if any
         if (jobsAbort) jobsAbort.abort();
         jobsAbort = new AbortController();
 
         try {
-            const r = await fetch("/api/jobs?" + params.toString(), {signal: jobsAbort.signal});
-            const res = await r.json();
+            const res = await fetchJSON('/api/jobs?' + params.toString(), {signal: jobsAbort.signal});
             total = res.total || 0;
             limit = res.limit || limit;
             offset = res.offset || offset;
-            renderJobs(res.items || []);
+            renderJobs(Array.isArray(res.items) ? res.items : []);
             updatePager();
         } catch (err) {
-            // Ignore aborted fetch errors
-            if (err && err.name !== "AbortError") {
-                console.error("loadJobs failed:", err);
+            if (err?.name !== 'AbortError') {
+                console.error('loadJobs failed:', err);
+                toast('Failed to load jobs', err.message || String(err), true);
+                list.innerHTML = `<p class="muted">Couldn’t load jobs.</p>`;
             }
         }
     }
@@ -390,161 +625,222 @@
         nextBtn.disabled = offset + limit >= total;
     }
 
-    function renderJobs(jobs) {
-        list.innerHTML = "";
-        if (!jobs.length) {
-            list.innerHTML = `<p class="muted">No jobs yet.</p>`;
-            return;
-        }
-        for (const j of jobs) {
-            const applied = !!j.applied;
-            const statusEmoji = applied ? "✅" : "🆕";
-            const company = j.company_name || "";
-            const loc = j.location || "";
-            const url = j.url || "";
-            const short = shortUrl(url, 36);
-            const discovered = j.discovered_at ? new Date(j.discovered_at) : null;
-            const when = discovered ? `${ago(discovered)} ago` : "";
-
-            const descHTML = formatDesc(j.description || "");
-
-            const row = document.createElement("div");
-            row.className = "row";
+    // ------- Rendering -------
+    function renderSkeletonRows(n = 6) {
+        list.innerHTML = '';
+        for (let i = 0; i < n; i++) {
+            const row = document.createElement('div');
+            row.className = 'row';
             row.innerHTML = `
-                <div class="cell">
-                  <input type="checkbox" title="Select" data-id="${j.id}" ${applied ? "disabled" : ""}/>
-                </div>
-                <div class="cell title ellipsis">
-                  <h4>${statusEmoji} <a href="${url}" target="_blank" rel="noopener" class="job-link">${escapeHtml(j.title || "(no title)")}</a></h4>
-                </div>
-                <div class="cell co-loc ellipsis meta-sm">
-                  🏢 ${escapeHtml(company)} ${loc ? ` • 📍 ${escapeHtml(loc)}` : ""}
-                </div>
-                <div class="cell age meta-sm right" title="${discovered ? discovered.toLocaleString() : ""}">
-                  🕒 ${when || ""}
-                </div>
-                <div class="cell surl ellipsis meta-sm">
-                  🔗 <a href="${url}" target="_blank" rel="noopener" class="ellipsis">${escapeHtml(short)}</a>
-                </div>
-                <div class="cell status right">
-                  ${applied ? `<span class="pill applied">Applied</span>` : `<span class="pill new">Not applied</span>`}
-                </div>
-            `;
-
-            const link = row.querySelector(".job-link");
-            attachPreview(link, {
-                title: j.title || "(no title)",
-                company,
-                location: loc,
-                descHTML
-            });
-
+        <div><div class="skeleton" style="width:18px; height:18px; border-radius:6px;"></div></div>
+        <div class="cell"><div class="skeleton" style="width:70%;"></div></div>
+        <div class="cell"><div class="skeleton" style="width:60%;"></div></div>
+        <div class="cell"><div class="skeleton" style="width:40%; margin-left:auto;"></div></div>
+        <div class="cell"><div class="skeleton" style="width:80%;"></div></div>
+        <div class="cell right"><div class="skeleton" style="width:90px; height:22px; margin-left:auto; border-radius:999px;"></div></div>`;
             list.appendChild(row);
         }
     }
 
-    applyBtn.onclick = async () => {
+    function renderJobs(jobs) {
+        list.innerHTML = '';
+        if (!jobs.length) {
+            list.innerHTML = `<p class="muted">No jobs yet.</p>`;
+            return;
+        }
+
+        const frag = document.createDocumentFragment();
+
+        for (const j of jobs) {
+            const applied = !!j.applied;
+            const statusIcon = applied ? '✅' : '🆕';
+            const company = j.company_name || '';
+            const loc = j.location || '';
+            const url = j.url || '';
+            const short = shortUrl(url, 36);
+            const discovered = j.discovered_at ? new Date(j.discovered_at) : null;
+            const when = discovered ? `${ago(discovered)} ago` : '';
+            const descHTML = formatDesc(j.description || '');
+
+            const row = document.createElement('div');
+            row.className = 'row';
+            row.role = 'listitem';
+            row.innerHTML = `
+        <div class="cell">
+          <input type="checkbox" title="Select" data-id="${j.id}" ${applied ? 'disabled' : ''} />
+        </div>
+        <div class="cell title ellipsis">
+          <h4>${statusIcon} <a href="${url}" target="_blank" rel="noopener" class="job-link">${escapeHtml(j.title || '(no title)')}</a></h4>
+        </div>
+        <div class="cell co-loc ellipsis meta-sm">
+          🏢 ${escapeHtml(company)} ${loc ? ` • 📍 ${escapeHtml(loc)}` : ''}
+        </div>
+        <div class="cell age meta-sm right" title="${discovered ? discovered.toLocaleString() : ''}">
+          🕒 ${when || ''}
+        </div>
+        <div class="cell surl ellipsis meta-sm">
+          🔗 <a href="${url}" target="_blank" rel="noopener" class="ellipsis">${escapeHtml(short)}</a>
+        </div>
+        <div class="cell status right">
+          ${applied ? `<span class="pill applied">Applied</span>` : `<span class="pill new">Not applied</span>`}
+        </div>`;
+
+            // preview hover
+            const link = row.querySelector('.job-link');
+            attachPreview(link, {title: j.title || '(no title)', company, location: loc, descHTML});
+
+            // checkbox selection listeners
+            const cb = row.querySelector('input[type="checkbox"]');
+            cb.addEventListener('change', updateSelectionState);
+
+            frag.appendChild(row);
+        }
+
+        list.appendChild(frag);
+    }
+
+    // ------- Bulk actions -------
+    applyBtn.addEventListener('click', async () => {
         const ids = selectedIDs();
         if (!ids.length) return;
-        const r = await fetch("/api/apply", {
-            method: "POST", headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ids})
-        });
-        const res = await r.json();
-        await loadJobs();
-        alert(`Applied to ${res.updated} job(s).`);
-    };
+        try {
+            const res = await fetchJSON('/api/apply', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ids})
+            });
+            await loadJobs();
+            toast('Applied', `Applied to ${res.updated ?? ids.length} job(s).`);
+        } catch (e) {
+            toast('Apply failed', e.message || String(e), true);
+        }
+    });
 
-    deleteBtn.onclick = async () => {
+    deleteBtn.addEventListener('click', async () => {
         const ids = selectedIDs(true);
         if (!ids.length) return;
         if (!confirm(`Delete ${ids.length} job(s)? This cannot be undone.`)) return;
-        const r = await fetch("/api/jobs/delete", {
-            method: "POST", headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ids})
-        });
-        const res = await r.json();
-        await loadJobs();
-        alert(`Deleted ${res.deleted} job(s).`);
-    };
+        try {
+            const res = await fetchJSON('/api/jobs/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ids})
+            });
+            await loadJobs();
+            toast('Deleted', `Deleted ${res.deleted ?? ids.length} job(s).`);
+        } catch (e) {
+            toast('Delete failed', e.message || String(e), true);
+        }
+    });
 
     function selectedIDs(includeApplied = false) {
-        const boxes = [...document.querySelectorAll('input[type="checkbox"]')];
+        const boxes = $$('#list input[type="checkbox"]');
         const sel = [];
         for (const b of boxes) {
             if (b.checked || (includeApplied && b.disabled)) {
-                const id = b.getAttribute("data-id");
+                const id = b.getAttribute('data-id');
                 if (id) sel.push(id);
             }
         }
         return sel;
     }
 
-    // ---------- Rich preview (hover card) ----------
+    selectAll.addEventListener('change', () => {
+        const boxes = $$('#list input[type="checkbox"]:not(:disabled)');
+        for (const b of boxes) b.checked = selectAll.checked;
+        updateSelectionState();
+    });
+
+    function updateSelectionState() {
+        const boxes = $$('#list input[type="checkbox"]');
+        const enabled = boxes.filter(b => !b.disabled);
+        const checked = enabled.filter(b => b.checked);
+
+        selCount.textContent = `${checked.length} selected`;
+        applyBtn.disabled = checked.length === 0;
+
+        const allChecked = enabled.length > 0 && checked.length === enabled.length;
+        selectAll.indeterminate = checked.length > 0 && !allChecked;
+        selectAll.checked = allChecked;
+
+        // Delete is allowed for any selected OR applied (disabled) when includeApplied later
+        const anyApplied = boxes.some(b => b.disabled);
+        deleteBtn.disabled = !(checked.length > 0 || anyApplied);
+    }
+
+    // ------- Preview hover card -------
     let previewEl = null;
     let hideTimer = null;
 
     function attachPreview(target, data) {
-        target.addEventListener("mouseenter", e => showPreview(e, data));
-        target.addEventListener("mousemove", e => movePreview(e));
-        target.addEventListener("mouseleave", hidePreviewSoon);
-        window.addEventListener("scroll", hidePreviewSoon, {passive: true});
+        target.addEventListener('mouseenter', e => showPreview(e, data));
+        target.addEventListener('mousemove', e => movePreview(e));
+        target.addEventListener('mouseleave', hidePreviewSoon);
+        window.addEventListener('scroll', hidePreviewSoon, {passive: true});
     }
 
     function showPreview(e, {title, company, location, descHTML}) {
         clearTimeout(hideTimer);
         if (!previewEl) {
-            previewEl = document.createElement("div");
-            previewEl.className = "preview-card";
+            previewEl = document.createElement('div');
+            previewEl.className = 'preview-card';
             document.body.appendChild(previewEl);
         }
         const heading = `<h5>${escapeHtml(title)}</h5>`;
-        const meta = (company || location)
-            ? `<p class="muted" style="opacity:.8;font-size:12px;margin-bottom:8px;">${escapeHtml(company)}${company && location ? " • " : ""}${escapeHtml(location)}</p>`
-            : "";
+        const meta = (company || location) ? `<p class="meta-sm" style="margin-bottom:8px;">${escapeHtml(company)}${company && location ? ' • ' : ''}${escapeHtml(location)}</p>` : '';
         previewEl.innerHTML = heading + meta + descHTML;
         movePreview(e);
-        previewEl.style.opacity = "1";
+        previewEl.style.opacity = '1';
     }
 
     function movePreview(e) {
         if (!previewEl) return;
         const pad = 14;
-        const vw = window.innerWidth, vh = window.innerHeight;
+        const vw = innerWidth, vh = innerHeight;
         const rect = previewEl.getBoundingClientRect();
         let x = e.clientX + pad, y = e.clientY + pad;
-
         if (x + rect.width + 10 > vw) x = e.clientX - rect.width - pad;
         if (y + rect.height + 10 > vh) y = e.clientY - rect.height - pad;
         if (x < 8) x = 8;
         if (y < 8) y = 8;
-
-        previewEl.style.left = x + "px";
-        previewEl.style.top = y + "px";
+        previewEl.style.left = x + 'px';
+        previewEl.style.top = y + 'px';
     }
 
     function hidePreviewSoon() {
         clearTimeout(hideTimer);
         hideTimer = setTimeout(() => {
-            if (previewEl) previewEl.style.opacity = "0";
-        }, 60);
+            if (previewEl) previewEl.style.opacity = '0';
+        }, 80);
     }
 
-    // ---------- helpers ----------
+    // ------- Networking & utilities -------
+    async function fetchJSON(url, opts) {
+        const r = await fetch(url, opts);
+        if (!r.ok) {
+            const text = await r.text().catch(() => '');
+            const msg = text || `${r.status} ${r.statusText}`;
+            throw new Error(msg);
+        }
+        const ct = r.headers.get('content-type') || '';
+        if (ct.includes('application/json')) return r.json();
+        return r.text();
+    }
+
     function shortUrl(u, max = 36) {
-        if (!u) return "";
+        if (!u) return '';
         try {
             const url = new URL(u);
-            let text = url.host + url.pathname.replace(/\/+$/, "");
+            let text = url.host + url.pathname.replace(/\/+$/, '');
             if (!text) text = url.host;
             if (text.length > max) {
                 const keep = Math.max(6, Math.floor(max * 0.55));
                 const end = Math.max(8, max - keep - 1);
-                text = text.slice(0, keep) + "…" + text.slice(-end);
+                text = text.slice(0, keep) + '…' + text.slice(-end);
             }
             return text;
         } catch {
-            return u.length > max ? u.slice(0, max - 1) + "…" : u;
+            return u.length > max ? u.slice(0, max - 1) + '…' : u;
         }
     }
 
@@ -562,8 +858,12 @@
     }
 
     function escapeHtml(s) {
-        return (s || "").replace(/[&<>"']/g, m => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        return (s || '').replace(/[&<>"']/g, m => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
         }[m]));
     }
 
@@ -575,16 +875,40 @@
             const lines = b.split(/\n/).map(s => s.trim()).filter(Boolean);
             const allBullets = lines.length > 1 && lines.every(l => /^[-*•]\s*/.test(l));
             if (allBullets) {
-                const li = lines.map(l => `<li>${l.replace(/^[-*•]\s*/, "")}</li>`).join("");
+                const li = lines.map(l => `<li>${l.replace(/^[-*•]\s*/, '')}</li>`).join('');
                 return `<ul>${li}</ul>`;
             }
-            return `<p>${lines.join("<br/>")}</p>`;
-        }).join("");
+            return `<p>${lines.join('<br/>')}</p>`;
+        }).join('');
         return html;
     }
 
-    // initial load
+    function toast(title, msg, isError = false) {
+        const el = $('#toast');
+        const t = $('#toastTitle');
+        const m = $('#toastMsg');
+        t.textContent = title;
+        m.textContent = msg;
+        el.classList.toggle('error', !!isError);
+        el.hidden = false;
+        el.style.opacity = '1';
+        clearTimeout(el._t);
+        el._t = setTimeout(() => {
+            el.style.opacity = '0';
+            setTimeout(() => el.hidden = true, 200);
+        }, 3500);
+    }
+
+    // Initial load
     loadJobs();
+
+    // Accessibility: allow / to focus search
+    window.addEventListener('keydown', (e) => {
+        if (e.key === '/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {
+            e.preventDefault();
+            q.focus();
+        }
+    });
 </script>
 </body>
 </html>

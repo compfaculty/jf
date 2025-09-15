@@ -441,7 +441,7 @@ func (r *SQLiteRepo) DeleteJobs(ctx context.Context, ids []string) (int64, error
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
 
-	//goland:noinspection SqlResolve
+	//goland:noinspection SqlResolve,Annotator
 	q := fmt.Sprintf(`DELETE FROM jobs WHERE id IN (%s)`, placeholders)
 
 	res, err := r.db.ExecContext(ctx, q, anySlice(ids)...)
