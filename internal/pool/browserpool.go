@@ -47,6 +47,7 @@ func NewBrowserPool(cfg BrowserPoolConfig) *BrowserPool {
 		chromedp.Flag("headless", cfg.Headless),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),
+		//chromedp.Flag("user-data-dir", `/mnt/c/Users/compf/chrome-profile-copy`),
 	)
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)

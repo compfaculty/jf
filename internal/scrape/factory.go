@@ -3,13 +3,15 @@ package scrape
 import (
 	"context"
 	"jf/internal/config"
+	"jf/internal/models"
 	"jf/internal/pool"
 	"net/http"
 	"strings"
 	"time"
 
 	"jf/internal/httpx"
-	"jf/internal/models"
+
+	"github.com/alitto/pond"
 )
 
 // ---- Public types used by scanner adapter ----
@@ -32,7 +34,7 @@ type Browser interface {
 // NewJobScraper chooses a concrete scraper by careers host.
 // Pass nil for client to use the default robust httpx client.
 // Pass nil for browser if you don't want JS fallback in Generic.
-func NewJobScraper(c models.Company, client Doer, browser Browser, wp *pool.WorkerPool) JobScraper {
+func NewJobScraper(c models.Company, client Doer, browser Browser, wp *pond.WorkerPool) JobScraper {
 	switch {
 	case strings.Contains(c.CareersURL, "secrettelaviv.com"):
 
@@ -46,9 +48,11 @@ func NewJobScraper(c models.Company, client Doer, browser Browser, wp *pool.Work
 		return NewAi21(c, client)
 	case strings.Contains(c.CareersURL, "akeyless.io"):
 		return NewAkeyless(c, client, wp)
+	case strings.Contains(c.CareersURL, "audiocodes.com"):
+		return NewAudioCodes(c, client)
 	default:
 		// generic path: static first, optional browser fallback
-		return NewGeneric(c, client, browser)
+		return NewGeneric(c, client, browser, wp)
 	}
 }
 

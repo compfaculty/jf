@@ -4,23 +4,29 @@ import (
 	"embed"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/alitto/pond"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
+	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/repo"
 	"jf/internal/scanner"
+	"jf/internal/scrape"
 )
 
 //go:embed gui.html
 var content embed.FS
 
-func NewRouter(r *repo.SQLiteRepo, sm *scanner.Manager) http.Handler {
+func NewRouter(r *repo.SQLiteRepo, sm *scanner.Manager, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -55,7 +61,6 @@ func NewRouter(r *repo.SQLiteRepo, sm *scanner.Manager) http.Handler {
 	mux.Get("/api/jobs", func(w http.ResponseWriter, req *http.Request) {
 		limit := atoi(req.URL.Query().Get("limit"))
 		offset := atoi(req.URL.Query().Get("offset"))
-		// sane defaults & bounds (also revalidated in repo)
 		if limit <= 0 || limit > 200 {
 			limit = 25
 		}
@@ -91,12 +96,106 @@ func NewRouter(r *repo.SQLiteRepo, sm *scanner.Manager) http.Handler {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
-		n, err := r.ApplyJobs(req.Context(), body.IDs)
+		log.Printf("[APPLY] request ids=%v", body.IDs)
+
+		if len(body.IDs) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"updated": 0})
+			return
+		}
+
+		jobs, err := r.ListJobsByIDs(req.Context(), body.IDs)
 		if err != nil {
+			log.Printf("[APPLY] db ListJobsByIDs error: %v", err)
 			http.Error(w, "db error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"updated": n})
+		log.Printf("[APPLY] loaded %d jobs", len(jobs))
+		if len(jobs) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"updated": 0})
+			return
+		}
+
+		okIDs := make([]string, 0, len(jobs))
+		fail := 0
+
+		// Per-request group bound to the client's context (deadline/cancel-friendly)
+		group, gctx := wp.GroupContext(req.Context())
+
+		var mu sync.Mutex
+		for i := range jobs {
+			j := jobs[i] // capture
+			group.Submit(func() error {
+				select {
+				case <-gctx.Done():
+					return gctx.Err()
+				default:
+				}
+
+				host := ""
+				if u, err := url.Parse(strings.TrimSpace(j.URL)); err == nil && u != nil {
+					host = strings.ToLower(u.Host)
+				}
+				log.Printf("[APPLY] start job id=%s host=%s url=%s title=%q", j.ID, host, j.URL, j.Title)
+
+				ok := false
+				errMsg := ""
+
+				switch {
+				case strings.Contains(host, "jobs.secrettelaviv.com"):
+					sta := scrape.NewSecretTelAviv(models.Company{Name: "Secret Tel Aviv"}, http.DefaultClient)
+					rr, err := sta.ApplyJobs(req.Context(), []models.Job{j}, cfg)
+					if err != nil {
+						errMsg = "ApplyJobs error: " + err.Error()
+						log.Printf("[APPLY][STA] id=%s err=%s", j.ID, errMsg)
+					} else if len(rr) > 0 {
+						ok = rr[0].OK
+						if !ok && rr[0].Message != "" {
+							errMsg = rr[0].Message
+						}
+						log.Printf("[APPLY][STA] id=%s ok=%v status=%d msg=%q", j.ID, rr[0].OK, rr[0].Status, rr[0].Message)
+					} else {
+						errMsg = "ApplyJobs returned empty results"
+						log.Printf("[APPLY][STA] id=%s err=%s", j.ID, errMsg)
+					}
+				default:
+					errMsg = "apply not supported for host"
+					log.Printf("[APPLY] id=%s host=%s unsupported", j.ID, host)
+				}
+
+				// Collect results
+				mu.Lock()
+				if ok {
+					okIDs = append(okIDs, j.ID)
+				} else {
+					fail++
+					if errMsg != "" {
+						log.Printf("[APPLY] failed id=%s host=%s url=%s err=%s", j.ID, host, j.URL, errMsg)
+					} else {
+						log.Printf("[APPLY] failed id=%s host=%s url=%s err=%s", j.ID, host, j.URL, "unknown")
+					}
+				}
+				mu.Unlock()
+				return nil
+			})
+		}
+
+		// Wait for all tasks or client cancel/timeout
+		_ = group.Wait()
+
+		var updated int64
+		if len(okIDs) > 0 {
+			n, err := r.ApplyJobs(req.Context(), okIDs)
+			if err != nil {
+				log.Printf("[APPLY] db ApplyJobs error: %v", err)
+			} else {
+				updated = n
+			}
+		}
+
+		log.Printf("[APPLY] done attempted=%d success=%d fail=%d updated=%d",
+			len(jobs), len(okIDs), fail, updated)
+
+		writeJSON(w, http.StatusOK, map[string]any{"updated": updated})
 	})
 
 	mux.Post("/api/delete", func(w http.ResponseWriter, req *http.Request) {

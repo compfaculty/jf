@@ -2,6 +2,7 @@ package scrape
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"jf/internal/config"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/alitto/pond"
 )
 
 // GenericScraper scans static anchors; if no results and a Browser is provided,
@@ -24,14 +26,16 @@ import (
 type GenericScraper struct {
 	company models.Company
 	client  Doer
-	browser Browser // optional
+	browser Browser          // optional
+	wp      *pond.WorkerPool // shared pool (recommended)
 }
 
-func NewGeneric(c models.Company, client Doer, browser Browser) *GenericScraper {
+func NewGeneric(c models.Company, client Doer, browser Browser, wp *pond.WorkerPool) *GenericScraper {
 	return &GenericScraper{
 		company: c,
 		client:  ensureClient(client),
 		browser: browser,
+		wp:      wp,
 	}
 }
 
@@ -50,22 +54,22 @@ func (g *GenericScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mod
 	if g.browser == nil {
 		return nil, nil
 	}
-	hrefs, err := g.browser.FetchAnchors(ctx, root, 1*time.Second)
+	anchors, err := g.browser.FetchAnchors(ctx, root, 1*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	if len(hrefs) == 0 {
+	if len(anchors) == 0 {
 		return nil, nil
 	}
 
-	found, err := g.extractFromAnchorsParallel(ctx, root, hrefs, cfg)
+	found, err := g.extractFromAnchorsParallel(ctx, root, anchors, cfg)
 	if err != nil {
 		return found, err
 	}
 	return found, nil
 }
 
-// Parallel anchor processing with backpressure and stable ordering.
+// Parallel anchor processing with backpressure and stable ordering, using a GROUP on pond.
 func (g *GenericScraper) extractFromAnchorsParallel(
 	ctx context.Context,
 	root string,
@@ -81,89 +85,63 @@ func (g *GenericScraper) extractFromAnchorsParallel(
 	thr := cfg.HeuristicThreshold
 	hardExcl := cfg.HardExcludeOnBad
 
-	// Concurrency controls
-	n := cfg.MaxConcurrency
-	if n <= 0 {
-		n = 8
-	}
-	if n > 64 {
-		n = 64
-	}
-	queue := len(anchors)
-	if queue < 64 {
-		queue = 64
-	}
-
-	wp := pool.NewWorkerPool(n, queue)
-	defer wp.Stop()
+	// Create a per-call group bound to ctx (supports timeout/cancel)
+	group, _ := g.wp.GroupContext(ctx)
 
 	type item struct {
 		idx int
 		job models.ScrapedJob
 	}
 
-	outCh := make(chan item, len(anchors))
-	var wg sync.WaitGroup
+	items := make([]item, 0, len(anchors))
+	var mu sync.Mutex
 
 	for i, a := range anchors {
-		if ctx.Err() != nil {
-			break
-		}
-		idx := i
+		i, a := i, a
 		txt := strings.TrimSpace(a.Text)
 		href := strings.TrimSpace(a.Href)
-
-		// Quick local skips (cheap) before scheduling
-		if href == "" || BadHref(href) {
+		if href == "" {
 			continue
 		}
 
-		wg.Add(1)
-		wp.Submit(func() {
-			defer wg.Done()
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
+		group.Submit(func() error {
 			// Resolve for title fallback and to build combined string
 			u := g.resolve(base, href)
 			if u == nil {
-				return
+				return errors.New("failed to resolve url")
 			}
 
 			// Title: prefer text, fallback to last path segment
 			title := g.pickTitle(strings.TrimSpace(joinWS(txt)), u)
 
 			combined := title + " " + u.String()
-			ok, ul := validators.MustJobLinkURL(combined, href, base, good, bad, thr, hardExcl)
-			if !ok {
-				return
+			ok, absCanon := validators.MustJobLinkURL(combined, href, base, good, bad, thr, hardExcl)
+			if !ok || strings.TrimSpace(absCanon) == "" {
+				return errors.New("failed to resolve url")
 			}
 
-			outCh <- item{
-				idx: idx,
+			mu.Lock()
+			items = append(items, item{
+				idx: i,
 				job: models.ScrapedJob{
 					Title:       title,
-					URL:         ul, // canonical absolute URL
+					URL:         absCanon, // canonical absolute URL
 					Description: title,
 					Company:     g.company.Name,
 				},
-			}
+			})
+			mu.Unlock()
+			return nil
 		})
 	}
 
-	go func() {
-		wg.Wait()
-		close(outCh)
-	}()
-
-	// Collect, sort by original order, and dedupe by canonical URL
-	items := make([]item, 0, len(anchors))
-	for it := range outCh {
-		items = append(items, it)
+	// Wait for the group to complete (or ctx deadline/cancel)
+	if err := group.Wait(); err != nil {
+		// Return whatever we collected + error so caller can decide
+		// (common pattern in your codebase)
 	}
+
+	// Stable order (by original anchor index), then dedupe by canonical URL
 	sort.SliceStable(items, func(i, j int) bool { return items[i].idx < items[j].idx })
 
 	seen := make(map[string]struct{}, len(items))
@@ -187,7 +165,7 @@ func (g *GenericScraper) fetchStatic(ctx context.Context, root string, cfg *conf
 	if err != nil {
 		return nil, err
 	}
-	// No UA set here; httpx will inject DefaultUserAgent if header is empty (via shared client).
+	// No UA set here; httpx injects UA if needed via shared client.
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -252,18 +230,45 @@ func (g *GenericScraper) extractFromHTML(root string, r io.ReadCloser, cfg *conf
 		text := strings.TrimSpace(joinWS(a.Text()))
 
 		// IMPORTANT: produce a canonical ABSOLUTE URL (fixes localhost-relative links in GUI)
-		ok2, ul := validators.MustJobLinkURL(text, href, base, good, bad, thr, hardExcl)
-		if !ok2 || strings.TrimSpace(ul) == "" {
+		ok2, absCanon := validators.MustJobLinkURL(text, href, base, good, bad, thr, hardExcl)
+		if !ok2 || strings.TrimSpace(absCanon) == "" {
 			return
 		}
 
+		title := text
+		if title == "" {
+			if u := g.resolve(base, href); u != nil {
+				title = g.pickTitle("", u)
+			}
+		}
+
 		out = append(out, models.ScrapedJob{
-			Title:       text,
-			URL:         ul, // <- canonical absolute
-			Description: text,
+			Title:       title,
+			URL:         absCanon, // canonical absolute
+			Description: title,
 			Company:     g.company.Name,
 		})
 	})
 
 	return out, nil
 }
+
+/********** tiny helper **********/
+
+//func joinWS(s string) string {
+//	var b strings.Builder
+//	b.Grow(len(s))
+//	prevSpace := false
+//	for _, r := range s {
+//		if r == '\n' || r == '\t' || r == '\r' || r == ' ' {
+//			if !prevSpace {
+//				b.WriteByte(' ')
+//			}
+//			prevSpace = true
+//			continue
+//		}
+//		b.WriteRune(r)
+//		prevSpace = false
+//	}
+//	return strings.TrimSpace(b.String())
+//}

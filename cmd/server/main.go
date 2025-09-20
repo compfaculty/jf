@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/alitto/pond"
 )
 
 func main() {
@@ -43,24 +45,21 @@ func main() {
 	httpDoer := httpx.New(cfg.HTTPX())
 	bp := pool.NewBrowserPool(cfg.BrowserPoolConfig())
 	defer bp.Close()
+	// --- Shared worker pool (pond)
 	w, q := cfg.WorkerPoolConfig()
-	wp := pool.NewWorkerPool(w, q)
-	defer wp.Stop()
+	wp := pond.New(w, q, pond.Context(rootCtx))
+	defer wp.StopAndWait()
+
 	// --- Scanner manager
 	sm := scanner.NewManager(r, cfg, httpDoer, bp, wp)
 
 	// --- HTTP server ---
-	router := server.NewRouter(r, sm)
+	router := server.NewRouter(r, sm, cfg, wp)
 	h := WithRecovery(WithRequestLogger(router, cfg.Debug))
 
-	// HTTP server with sane timeouts
 	httpSrv := &http.Server{
 		Addr:    cfg.Addr(),
 		Handler: h,
-		//ReadTimeout:       20 * time.Second,
-		//ReadHeaderTimeout: 10 * time.Second,
-		//WriteTimeout:      40 * time.Second,
-		//IdleTimeout:       90 * time.Second,
 	}
 
 	go func() {

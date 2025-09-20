@@ -2,20 +2,21 @@ package repo
 
 // embeddedCompaniesJSON is compiled into the binary and not served anywhere.
 var embeddedCompanies = []struct {
-	Name string
-	URL  string
+	Name  string
+	URL   string
+	Email string
 }{
-	{"40Seas", "https://www.40seas.com/careers#positions"},
-	{"Agrematch", "https://www.agrematch.com/careers"},
-	{"Agora Real", "https://agorareal.com/careers/"},
-	{"Aidoc", "https://www.aidoc.com/about/careers/"},
-	{"AI21", "https://www.ai21.com/careers/"},
-	{"Akeyless", "https://www.akeyless.io/careers/#positions"},
+	{"40Seas", "https://www.40seas.com/careers#positions", ""},
+	{"Agrematch", "https://www.agrematch.com/careers", ""},
+	{"Agora Real", "https://agorareal.com/careers/", ""},
+	{"Aidoc", "https://www.aidoc.com/about/careers/", ""},
+	{"AI21", "https://www.ai21.com/careers/", ""},
+	{"Akeyless", "https://www.akeyless.io/careers/#positions", ""},
 	//{"Allot", "https://www.allot.com/careers/search/"},
 	//{"Amdocs", "https://jobs.amdocs.com/careers"},
 	//{"Anecdotes", "https://www.anecdotes.ai/careers"},
 	//{"Arbe Robotics", "https://arberobotics.com/career/"},
-	//{"Audiocodes", "https://www.audiocodes.com/careers/positions?countryGroup=Israel"},
+	{"Audiocodes", "https://www.audiocodes.com/careers/positions?countryGroup=Israel", ""},
 	//{"Axonius", "https://www.axonius.com/company/careers/open-jobs"},
 	//{"Buildots", "https://buildots.com/careers/co/development/"},
 	//{"C2A Security", "https://c2a-sec.com/careers/"},
@@ -34,7 +35,7 @@ var embeddedCompanies = []struct {
 	//{"ParaZero", "https://parazero.com/careers/"},
 	//{"Pentera", "https://pentera.io/careers/"},
 	//{"Perion", "https://perion.com/careers/"},
-	//{"Secret TLV", "https://jobs.secrettelaviv.com/"},
+	{"Secret TLV", "https://jobs.secrettelaviv.com/", ""},
 	//{"Seemplicity", "https://seemplicity.io/about/careers/"},
 	//{"Ceragon Networks", "https://www.ceragon.com/about-ceragon/careers"},
 	//{"Varonis", "https://careers.varonis.com/"},

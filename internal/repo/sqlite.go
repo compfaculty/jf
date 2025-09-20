@@ -28,7 +28,9 @@ type SQLiteRepo struct {
 // back to DELETE if needed. No migrations are performed—schema is created fresh.
 func NewSQLite(path string) (*SQLiteRepo, error) {
 	logger := log.Default()
-	debug := isTruthy(os.Getenv("JF_DB_DEBUG"))
+	var v string = os.Getenv("JF_DB_DEBUG")
+	v = strings.ToLower(strings.TrimSpace(v))
+	debug := v == "1" || v == "true" || v == "yes" || v == "on"
 
 	// ensure parent dir exists (useful if path points into a mount)
 	if dir := filepath.Dir(path); dir != "" && dir != "." && dir != "/" {
@@ -167,7 +169,6 @@ CREATE INDEX IF NOT EXISTS idx_jobs_company_id    ON jobs(company_id);
 // Companies
 // ----------------------------------------------------------------------------
 
-// UpsertCompany keeps conflict target on id (useful if you already know IDs).
 func (r *SQLiteRepo) UpsertCompany(ctx context.Context, c *models.Company) error {
 	now := time.Now().UTC()
 	if c.ID == "" {
@@ -451,6 +452,41 @@ func (r *SQLiteRepo) DeleteJobs(ctx context.Context, ids []string) (int64, error
 	return res.RowsAffected()
 }
 
+// ListJobsByIDs returns a minimal view of jobs for given IDs.
+// We only need ID, Title, URL for applying.
+func (r *SQLiteRepo) ListJobsByIDs(ctx context.Context, ids []string) ([]models.Job, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	ph := strings.Repeat("?,", len(ids))
+	ph = ph[:len(ph)-1]
+	q := fmt.Sprintf(`SELECT id, title, url FROM jobs WHERE id IN (%s)`, ph)
+
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.Job, 0, len(ids))
+	for rows.Next() {
+		var j models.Job
+		if err := rows.Scan(&j.ID, &j.Title, &j.URL); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SeedCompanies loads the embedded list and upserts by name.
 func SeedCompanies(r *SQLiteRepo) error {
 	seen := make(map[string]struct{}, len(embeddedCompanies))
@@ -460,6 +496,7 @@ func SeedCompanies(r *SQLiteRepo) error {
 	for _, e := range embeddedCompanies {
 		name := strings.TrimSpace(e.Name)
 		url := strings.TrimSpace(e.URL)
+		email := strings.TrimSpace(e.Email)
 		if name == "" || url == "" {
 			skipped++
 			continue
@@ -472,6 +509,7 @@ func SeedCompanies(r *SQLiteRepo) error {
 		c := models.Company{
 			Name:       name,
 			CareersURL: url,
+			ApplyEmail: email,
 			Active:     true,
 		}
 		if err := r.UpsertCompanyByName(ctx, &c); err != nil {
@@ -552,11 +590,6 @@ func (r *SQLiteRepo) debugf(format string, args ...any) {
 	if r.debug && r.log != nil {
 		r.log.Printf("[DB][debug] "+format, args...)
 	}
-}
-
-func isTruthy(v string) bool {
-	v = strings.ToLower(strings.TrimSpace(v))
-	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 func boolToInt(b bool) int {

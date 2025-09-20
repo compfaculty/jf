@@ -41,7 +41,7 @@ type JobPage struct {
 }
 
 type AppliedResult struct {
-	JobID   int64  `json:"job_id"`
+	JobID   string `json:"job_id"`
 	URL     string `json:"url"`
 	Title   string `json:"title"`
 	Status  int    `json:"status"`

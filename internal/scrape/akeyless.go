@@ -6,17 +6,18 @@ import (
 
 	"jf/internal/config"
 	"jf/internal/models"
-	"jf/internal/pool"
 	util "jf/internal/utils"
+
+	"github.com/alitto/pond"
 )
 
 type AkeylessScraper struct {
 	company models.Company
 	client  Doer
-	wp      *pool.WorkerPool // optional shared pool
+	wp      *pond.WorkerPool // optional shared pool
 }
 
-func NewAkeyless(c models.Company, client Doer, wp *pool.WorkerPool) *AkeylessScraper {
+func NewAkeyless(c models.Company, client Doer, wp *pond.WorkerPool) *AkeylessScraper {
 	return &AkeylessScraper{
 		company: c,
 		client:  ensureClient(client),

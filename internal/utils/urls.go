@@ -5,19 +5,6 @@ import (
 	"strings"
 )
 
-func ResolveAgainst(base *url.URL, href string) (*url.URL, bool) {
-	h := strings.TrimSpace(href)
-	if h == "" || base == nil {
-		return nil, false
-	}
-	ref, err := url.Parse(h)
-	if err != nil {
-		return nil, false
-	}
-	u := base.ResolveReference(ref) // ★ key line: make it absolute
-	return u, true
-}
-
 func CanonURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)

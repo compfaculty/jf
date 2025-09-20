@@ -1,11 +1,12 @@
 apply_form:
   first_name: Alex
   last_name: Granovsky
-  email: alex@example.com
-  phone: "+380-XX-XXX-XX-XX"
-  cv_path: "/home/alex/cv.pdf"
+  email: compfaculty@gmail.com
+  phone: 0523292110
+  #  cv_path: ~/jf/data/Senior_Automation_Engineer_Alex_Granovsky.pdf
+  cv_path: ~/jf/data/Senior_Software_Engineer_Alex_Granovsky.pdf
   agree_tos: true
-  forward_to_headhunters: false
+  forward_to_headhunters: true
 
 cv_roles:
   - DevOps
@@ -80,14 +81,14 @@ mail:
   default_cv: /home/alex/cv/cv_general.pdf
   profiles:
     - name: backend
-      patterns: ["backend", "golang", "go developer", "server", "api", "full-stack"]
+      patterns: [ "backend", "golang", "go developer", "server", "api", "full-stack" ]
       cv_path: /home/alex/cv/cv_backend.pdf
     - name: devops
-      patterns: ["devops", "sre", "platform", "kubernetes", "k8s", "terraform", "infra"]
+      patterns: [ "devops", "sre", "platform", "kubernetes", "k8s", "terraform", "infra" ]
       cv_path: /home/alex/cv/cv_devops.pdf
     - name: security
-      patterns: ["security", "appsec", "pentest", "vuln", "red team"]
+      patterns: [ "security", "appsec", "pentest", "vuln", "red team" ]
       cv_path: /home/alex/cv/cv_security.pdf
     - name: data
-      patterns: ["data", "ml", "ai", "nlp", "analytics", "scientist", "engineer (data)"]
+      patterns: [ "data", "ml", "ai", "nlp", "analytics", "scientist", "engineer (data)" ]
       cv_path: /home/alex/cv/cv_data.pdf

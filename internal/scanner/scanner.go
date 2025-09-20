@@ -14,6 +14,8 @@ import (
 	"jf/internal/pool"
 	"jf/internal/repo"
 	"jf/internal/scrape"
+
+	"github.com/alitto/pond"
 )
 
 type Manager struct {
@@ -21,7 +23,7 @@ type Manager struct {
 	cfg  *config.Config
 	http scrape.Doer
 	bp   *pool.BrowserPool
-	wp   *pool.WorkerPool
+	wp   *pond.WorkerPool
 
 	mu     sync.Mutex
 	state  ScanState
@@ -39,7 +41,7 @@ type ScanState struct {
 
 // NewManager wires both pools. If you don’t need one of them yet, you can pass nil;
 // it’ll still work (we gate usage accordingly).
-func NewManager(r *repo.SQLiteRepo, cfg *config.Config, httpDoer scrape.Doer, bp *pool.BrowserPool, wp *pool.WorkerPool) *Manager {
+func NewManager(r *repo.SQLiteRepo, cfg *config.Config, httpDoer scrape.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Manager {
 	return &Manager{repo: r, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
 }
 
