@@ -135,7 +135,7 @@ func (p *Config) BrowserPoolConfig() pool.BrowserPoolConfig {
 }
 
 func (p *Config) WorkerPoolConfig() (workers, queue int) {
-	return nz(p.WorkerPool.Workers, 8), nz(p.WorkerPool.Queue, 1024)
+	return nz(p.WorkerPool.Workers, 16), nz(p.WorkerPool.Queue, 1024)
 }
 
 func parseDur(s string, def time.Duration) time.Duration {

@@ -45,7 +45,7 @@ func main() {
 	httpDoer := httpx.New(cfg.HTTPX())
 	bp := pool.NewBrowserPool(cfg.BrowserPoolConfig())
 	defer bp.Close()
-	// --- Shared worker pool (pond)
+	// --- Shared worker pool
 	w, q := cfg.WorkerPoolConfig()
 	wp := pond.New(w, q, pond.Context(rootCtx))
 	defer wp.StopAndWait()
