@@ -1,0 +1,39 @@
+# AWS Configuration
+aws_region   = "us-east-1"
+project_name = "jf-app"
+environment  = "dev"
+
+# Network Configuration
+vpc_cidr              = "10.0.0.0/16"
+allowed_cidr_blocks   = ["0.0.0.0/0"] # Change to your IP range for security
+
+# Application Configuration
+app_port       = 8080
+app_cpu        = 1024  # 1 vCPU
+app_memory     = 2048  # 2GB
+desired_count  = 2     # Number of tasks
+
+# HTTPS Configuration (optional)
+enable_https    = false
+certificate_arn = "" # ARN of ACM certificate if enable_https = true
+domain_name     = "" # Your domain name if you have one
+
+# Application Settings
+config_first_name = "Alex"
+config_last_name  = "Granovsky"
+config_email      = "compfaculty@gmail.com"
+config_phone      = "0523292110"
+debug_mode        = false
+
+# SMTP Configuration (required)
+smtp_host     = "smtp.gmail.com"
+smtp_port     = 587
+smtp_user     = "youruser@gmail.com"
+smtp_password = "your-app-password"
+
+# OpenAI API Key (optional, for LLM features)
+llm_api_key = "sk-your-openai-api-key"
+
+# Health Check
+health_check_path = "/"
+
