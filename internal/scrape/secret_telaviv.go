@@ -7,6 +7,7 @@ import (
 	"io"
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/utils"
 	"jf/internal/validators"
 	"log"
 	"mime/multipart"
@@ -97,9 +98,8 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		// 2) per-job inactive check (lightweight GET + DOM probe)
 		filtered := make([]models.ScrapedJob, 0, len(items))
 		for _, j := range items {
-			ok, inactive := s.isSTAInactive(ctx, j.URL)
+			ok, inactive := s.isInactive(ctx, j.URL)
 			if ok && inactive {
-				// skip inactive
 				continue
 			}
 			filtered = append(filtered, j)
@@ -144,24 +144,37 @@ func findNext(doc *goquery.Document, base string) string {
 
 // fetchDoc gets the URL and returns a parsed document or an error.
 func (s *SecretTelAviv) fetchDoc(ctx context.Context, u string) (*goquery.Document, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, utils.NewNetworkError("failed to create request", err)
+	}
+
 	resp, err := s.client.Do(req)
-	if err != nil || resp == nil {
-		if resp != nil && resp.Body != nil {
-			resp.Body.Close()
-		}
-		return nil, err
+	if err != nil {
+		return nil, utils.NewNetworkError("failed to fetch document", err)
 	}
-	defer resp.Body.Close()
+
+	if resp == nil {
+		return nil, utils.NewNetworkError("received nil response", nil)
+	}
+
+	defer utils.SafeClose(resp.Body, "response body")
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, context.Canceled // simple non-OK error; caller treats as skip for non-first pages
+		return nil, utils.NewNetworkError(fmt.Sprintf("HTTP %d", resp.StatusCode), nil)
 	}
-	return goquery.NewDocumentFromReader(resp.Body)
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, utils.NewParsingError("failed to parse HTML document", err)
+	}
+
+	return doc, nil
 }
 
-// isSTAInactive GETs the job page and detects the WPJB inactive message.
+// isInactive GETs the job page and detects the WPJB inactive message.
 // Returns (ok, inactive).
-func (s *SecretTelAviv) isSTAInactive(ctx context.Context, jobURL string) (bool, bool) {
+func (s *SecretTelAviv) isInactive(ctx context.Context, jobURL string) (bool, bool) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -176,11 +189,11 @@ func (s *SecretTelAviv) isSTAInactive(ctx context.Context, jobURL string) (bool,
 		// non-200 often means gone/redirect/etc. Treat as inconclusive; keep the job.
 		return true, false
 	}
-	bb, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, false
 	}
-	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(bb))
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return false, false
 	}

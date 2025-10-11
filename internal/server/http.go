@@ -21,12 +21,13 @@ import (
 	"jf/internal/repo"
 	"jf/internal/scanner"
 	"jf/internal/scrape"
+	"jf/internal/utils"
 )
 
 //go:embed gui.html
 var content embed.FS
 
-func NewRouter(r *repo.SQLiteRepo, sm *scanner.Manager, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
+func NewRouter(r repo.Repo, sm *scanner.Scanner, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -55,6 +56,12 @@ func NewRouter(r *repo.SQLiteRepo, sm *scanner.Manager, cfg *config.Config, wp *
 			Total:     st.Total,
 			Error:     st.Error,
 		})
+	})
+
+	// Metrics endpoint
+	mux.Get("/api/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		metrics := utils.GetMetricsSnapshot()
+		writeJSON(w, http.StatusOK, metrics)
 	})
 
 	// Jobs (paginated)
@@ -238,13 +245,4 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(statics)
-}
-
-type ScanStatus struct {
-	Running   bool   `json:"running"`
-	StartedAt string `json:"started_at"`
-	Percent   int    `json:"percent"`
-	Found     int    `json:"found"`
-	Total     int    `json:"total"`
-	Error     string `json:"error,omitempty"`
 }

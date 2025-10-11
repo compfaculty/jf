@@ -1,4 +1,3 @@
-// Package repo provides a tiny SQLite repository for companies and jobs.
 package repo
 
 import (
@@ -6,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +15,8 @@ import (
 
 	"jf/internal/models"
 )
+
+var _ Repo = (*SQLiteRepo)(nil)
 
 type SQLiteRepo struct {
 	db    *sql.DB
@@ -236,11 +236,14 @@ func (r *SQLiteRepo) ListCompanies(ctx context.Context) ([]models.Company, error
 	//goland:noinspection SqlResolve
 	const q = `SELECT id,name,careers_url,active,created_at,updated_at FROM companies WHERE active=1 ORDER BY name`
 	start := time.Now()
-	rows, err := r.query(ctx, q)
+	rows, err := r.db.QueryContext(ctx, q)
+	dur := time.Since(start)
 	if err != nil {
+		r.infof("SQL query err dur=%s sql=%q err=%v", dur, minifySQL(q), err)
 		r.infof("ListCompanies err err=%v", err)
 		return nil, err
 	}
+	r.debugf("SQL query ok  dur=%s sql=%q", dur, minifySQL(q))
 	defer rows.Close()
 	var out []models.Company
 	var n int
@@ -488,39 +491,39 @@ func (r *SQLiteRepo) ListJobsByIDs(ctx context.Context, ids []string) ([]models.
 }
 
 // SeedCompanies loads the embedded list and upserts by name.
-func SeedCompanies(r *SQLiteRepo) error {
-	seen := make(map[string]struct{}, len(embeddedCompanies))
-	ctx := context.Background()
-	added, skipped := 0, 0
-
-	for _, e := range embeddedCompanies {
-		name := strings.TrimSpace(e.Name)
-		url := strings.TrimSpace(e.URL)
-		email := strings.TrimSpace(e.Email)
-		if name == "" || url == "" {
-			skipped++
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-
-		c := models.Company{
-			Name:       name,
-			CareersURL: url,
-			ApplyEmail: email,
-			Active:     true,
-		}
-		if err := r.UpsertCompanyByName(ctx, &c); err != nil {
-			return err
-		}
-		added++
-	}
-
-	r.infof("SeedCompanies loaded=%d skipped=%d total_in_list=%d", added, skipped, len(embeddedCompanies))
-	return nil
-}
+//func SeedCompanies(r *SQLiteRepo) error {
+//	seen := make(map[string]struct{}, len(embeddedCompanies))
+//	ctx := context.Background()
+//	added, skipped := 0, 0
+//
+//	for _, e := range embeddedCompanies {
+//		name := strings.TrimSpace(e.Name)
+//		url := strings.TrimSpace(e.URL)
+//		email := strings.TrimSpace(e.Email)
+//		if name == "" || url == "" {
+//			skipped++
+//			continue
+//		}
+//		if _, ok := seen[name]; ok {
+//			continue
+//		}
+//		seen[name] = struct{}{}
+//
+//		c := models.Company{
+//			Name:       name,
+//			CareersURL: url,
+//			ApplyEmail: email,
+//			Active:     true,
+//		}
+//		if err := r.UpsertCompanyByName(ctx, &c); err != nil {
+//			return err
+//		}
+//		added++
+//	}
+//
+//	r.infof("SeedCompanies loaded=%d skipped=%d total_in_list=%d", added, skipped, len(embeddedCompanies))
+//	return nil
+//}
 
 // ----------------------------------------------------------------------------
 // Helpers
@@ -538,48 +541,6 @@ func (r *SQLiteRepo) exec(ctx context.Context, query string, args ...any) (sql.R
 	return res, nil
 }
 
-func (r *SQLiteRepo) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	start := time.Now()
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	dur := time.Since(start)
-	if err != nil {
-		r.infof("SQL query err dur=%s sql=%q args=%s err=%v", dur, minifySQL(query), previewArgs(args), err)
-		return nil, err
-	}
-	r.debugf("SQL query ok  dur=%s sql=%q args=%s", dur, minifySQL(query), previewArgs(args))
-	return rows, nil
-}
-
-func rowsAffected(res sql.Result) int64 {
-	if res == nil {
-		return 0
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0
-	}
-	return n
-}
-
-func minifySQL(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
-
-func previewArgs(args []any) string {
-	if len(args) == 0 {
-		return "[]"
-	}
-	out := make([]string, 0, len(args))
-	for _, a := range args {
-		s := fmt.Sprintf("%v", a)
-		if len(s) > 256 {
-			s = s[:256] + "…"
-		}
-		out = append(out, s)
-	}
-	return "[" + strings.Join(out, ", ") + "]"
-}
-
 func (r *SQLiteRepo) infof(format string, args ...any) {
 	if r.log != nil {
 		r.log.Printf("[DB] "+format, args...)
@@ -590,48 +551,4 @@ func (r *SQLiteRepo) debugf(format string, args ...any) {
 	if r.debug && r.log != nil {
 		r.log.Printf("[DB][debug] "+format, args...)
 	}
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-// anySlice converts []string to []any for Exec args.
-func anySlice(ss []string) []any {
-	out := make([]any, len(ss))
-	for i, s := range ss {
-		out[i] = s
-	}
-	return out
-}
-
-// --- URL canonicalization used for DB uniqueness ---
-// Strips fragments, lowercases host, removes utm_* query params, trims trailing slash in path.
-func canonicalizeURL(u string) string {
-	u = strings.TrimSpace(u)
-	if u == "" {
-		return ""
-	}
-	uu, err := url.Parse(u)
-	if err != nil {
-		return strings.ToLower(u)
-	}
-	uu.Fragment = ""
-
-	q := uu.Query()
-	for k := range q {
-		if strings.HasPrefix(strings.ToLower(k), "utm_") {
-			q.Del(k)
-		}
-	}
-	uu.RawQuery = q.Encode()
-	uu.Host = strings.ToLower(uu.Host)
-	// normalize trailing slash
-	if strings.HasSuffix(uu.Path, "/") {
-		uu.Path = strings.TrimRight(uu.Path, "/")
-	}
-	return uu.String()
 }

@@ -3,7 +3,7 @@ package validators
 import (
 	"context"
 	"jf/internal/config"
-	util "jf/internal/utils"
+	"jf/internal/strutil"
 	"strings"
 	"time"
 
@@ -175,7 +175,7 @@ func HeuristicScore(text, mode string, h *Heuristics) float64 {
 	if t == "" {
 		return 0
 	}
-	toks := util.Tokens(t) //  regex-based tokenizer
+	toks := strutil.Tokens(t) //  regex-based tokenizer
 	if len(toks) == 0 {
 		return 0
 	}
@@ -206,7 +206,7 @@ func HeuristicScore(text, mode string, h *Heuristics) float64 {
 	}
 
 	// Penalty for bad density (cap at 0.60)
-	badPenalty := util.Min(0.60, 0.15*float64(badHits))
+	badPenalty := strutil.Min(0.60, 0.15*float64(badHits))
 
 	// Precision / recall-ish terms
 	var precision, recall float64

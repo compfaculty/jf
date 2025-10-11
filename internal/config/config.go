@@ -104,7 +104,7 @@ func (p *Config) ShutdownTimeoutDuration() time.Duration {
 	return 10 * time.Second
 }
 
-func (p *Config) HTTPX() httpx.Config {
+func (p *Config) HTTPX() httpx.HttpClientConfig {
 	// sensible defaults if missing
 	timeout := parseDur(p.HTTPClient.Timeout, 30*time.Second)
 	rmin := parseDur(p.HTTPClient.RetryWaitMin, 250*time.Millisecond)
@@ -113,7 +113,7 @@ func (p *Config) HTTPX() httpx.Config {
 	if ua == "" {
 		ua = httpx.DefaultUserAgent
 	}
-	return httpx.Config{
+	return httpx.HttpClientConfig{
 		Timeout:      timeout,
 		RPS:          p.HTTPClient.RPS,
 		Burst:        nz(p.HTTPClient.Burst, 6),
@@ -258,7 +258,7 @@ func MergeFromApplyForm(base *Config, form url.Values) *Config {
 	return &p
 }
 
-// ---- FromForm (GUI → Config) ----
+// ---- FromForm (GUI → HttpClientConfig) ----
 
 func FromForm(f url.Values) *Config {
 	get := func(k string) string { return strings.TrimSpace(f.Get(k)) }

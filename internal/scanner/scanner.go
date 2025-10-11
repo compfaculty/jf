@@ -10,16 +10,16 @@ import (
 	"time"
 
 	"jf/internal/config"
-	"jf/internal/models"
 	"jf/internal/pool"
 	"jf/internal/repo"
 	"jf/internal/scrape"
+	"jf/internal/utils"
 
 	"github.com/alitto/pond"
 )
 
-type Manager struct {
-	repo *repo.SQLiteRepo
+type Scanner struct {
+	repo repo.Repo
 	cfg  *config.Config
 	http scrape.Doer
 	bp   *pool.BrowserPool
@@ -39,20 +39,20 @@ type ScanState struct {
 	Error     string    `json:"error"`
 }
 
-// NewManager wires both pools. If you don’t need one of them yet, you can pass nil;
+// NewScanner wires both pools. If you don’t need one of them yet, you can pass nil;
 // it’ll still work (we gate usage accordingly).
-func NewManager(r *repo.SQLiteRepo, cfg *config.Config, httpDoer scrape.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Manager {
-	return &Manager{repo: r, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
+func NewScanner(r repo.Repo, cfg *config.Config, httpDoer scrape.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Scanner {
+	return &Scanner{repo: r, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
 }
 
-func (m *Manager) Status() ScanState {
+func (m *Scanner) Status() ScanState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.state
 }
 
 // Stop cancels an active scan (idempotent).
-func (m *Manager) Stop() {
+func (m *Scanner) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cancel != nil {
@@ -60,7 +60,7 @@ func (m *Manager) Stop() {
 	}
 }
 
-func (m *Manager) StartScan() error {
+func (m *Scanner) StartScan() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state.Running {
@@ -80,7 +80,7 @@ func (m *Manager) StartScan() error {
 	return nil
 }
 
-func (m *Manager) run(ctx context.Context) {
+func (m *Scanner) run(ctx context.Context) {
 	companies, err := m.repo.ListCompanies(ctx)
 	if err != nil {
 		m.finishWithErr(err)
@@ -123,20 +123,21 @@ func (m *Manager) run(ctx context.Context) {
 					break
 				default:
 				}
-				j := models.Job{
-					CompanyID:   c.ID,
-					Title:       strings.TrimSpace(sj.Title),
-					URL:         strings.TrimSpace(sj.URL),
-					Location:    strings.TrimSpace(sj.Location),
-					Description: strings.TrimSpace(sj.Description),
-				}
-				//if j.URL == "" || j.Title == "" {
-				//	continue
-				//}
-				if err := m.repo.UpsertJob(cctx, &j); err != nil {
+				// Use object pool for better memory management
+				j := utils.GetJob()
+				j.CompanyID = c.ID
+				j.Title = strings.TrimSpace(sj.Title)
+				j.URL = strings.TrimSpace(sj.URL)
+				j.Location = strings.TrimSpace(sj.Location)
+				j.Description = strings.TrimSpace(sj.Description)
+
+				if err := m.repo.UpsertJob(cctx, j); err != nil {
 					m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", c.Name, j.URL, err))
+					utils.PutJob(j) // Return to pool on error
 					continue
 				}
+
+				utils.PutJob(j) // Return to pool after successful use
 				newN++
 			}
 
@@ -164,20 +165,20 @@ func (m *Manager) run(ctx context.Context) {
 	}
 }
 
-func (m *Manager) setTotal(total int) {
+func (m *Scanner) setTotal(total int) {
 	m.mu.Lock()
 	m.state.Total = total
 	m.mu.Unlock()
 }
 
-func (m *Manager) setProgress(percent, found int) {
+func (m *Scanner) setProgress(percent, found int) {
 	m.mu.Lock()
 	m.state.Percent = percent
 	m.state.Found = found
 	m.mu.Unlock()
 }
 
-func (m *Manager) appendWarn(e string) {
+func (m *Scanner) appendWarn(e string) {
 	if strings.TrimSpace(e) == "" {
 		return
 	}
@@ -187,14 +188,14 @@ func (m *Manager) appendWarn(e string) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) finishWithErr(err error) {
+func (m *Scanner) finishWithErr(err error) {
 	m.mu.Lock()
 	m.state.Running = false
 	m.state.Error = err.Error()
 	m.mu.Unlock()
 }
 
-func (m *Manager) finishOK(pct, found int) {
+func (m *Scanner) finishOK(pct, found int) {
 	m.mu.Lock()
 	m.state.Running = false
 	m.state.Percent = pct

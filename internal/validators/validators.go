@@ -2,10 +2,11 @@ package validators
 
 import (
 	"context"
-	util "jf/internal/utils"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"jf/internal/strutil"
 
 	"github.com/openai/openai-go"
 )
@@ -35,23 +36,23 @@ func badHrefLite(href string) bool {
 
 // ShouldConsider: quick good/bad gates + heuristic threshold.
 func ShouldConsider(text string, good, bad map[string]struct{}, heuristicThr float64, hardExcludeOnBad bool) bool {
-	n := util.Normalize(text)
+	n := strutil.Normalize(text)
 
 	// hard substring hits on bad → immediate reject
 	for p := range bad {
-		if p != "" && util.ContainsFold(n, p) {
+		if p != "" && strutil.ContainsFold(n, p) {
 			return false
 		}
 	}
 	// any good substring → quick accept
 	for p := range good {
-		if p != "" && util.ContainsFold(n, p) {
+		if p != "" && strutil.ContainsFold(n, p) {
 			return true
 		}
 	}
 	// optional hard exclude on tokenized bad terms
 	if hardExcludeOnBad {
-		for _, t := range util.Tokens(text) {
+		for _, t := range strutil.Tokens(text) {
 			if _, hit := bad[t]; hit {
 				return false
 			}
@@ -99,7 +100,7 @@ func MustJobLinkURL(
 	// 3) Scope: same host+scheme+path OR allow well-known ATS hosts
 	sameScheme := strings.EqualFold(u.Scheme, base.Scheme)
 	sameHost := strings.EqualFold(u.Hostname(), base.Hostname())
-	//underBase := util.HasPathPrefixSafe(u.Path, base.Path)
+	//underBase := strutil.HasPathPrefixSafe(u.Path, base.Path)
 
 	//allow := sameScheme && sameHost && underBase
 	allow := sameScheme && sameHost
@@ -128,7 +129,7 @@ func MustJobLinkURL(
 	combined := strings.TrimSpace(text + " " + u.String())
 
 	if hardExcludeOnBad {
-		for _, t := range util.Tokens(combined) {
+		for _, t := range strutil.Tokens(combined) {
 			if _, hit := bad[t]; hit {
 				return false, ""
 			}
@@ -140,7 +141,7 @@ func MustJobLinkURL(
 	}
 
 	// 5) Return canonical absolute URL (stable for dedupe)
-	return true, util.CanonURL(u.String())
+	return true, strutil.CanonURL(u.String())
 }
 
 /********** optional LLM gate **********/
@@ -163,7 +164,7 @@ func YesNoGate(ctx context.Context, client *openai.Client, model, cvProfile, job
 
 	text := ""
 	if len(resp.Choices) > 0 {
-		text = util.Normalize(resp.Choices[0].Message.Content)
+		text = strutil.Normalize(resp.Choices[0].Message.Content)
 	}
-	return util.ContainsFold(text, "yes"), nil
+	return strutil.ContainsFold(text, "yes"), nil
 }

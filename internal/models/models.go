@@ -3,17 +3,17 @@ package models
 import "time"
 
 type Company struct {
-	ID         string    `json:"id"` // UUID
+	ID         string    `json:"id"`
 	Name       string    `json:"name"`
 	CareersURL string    `json:"careers_url"`
 	Active     bool      `json:"active"`
-	ApplyEmail string    `json:"apply_email"` // if set, prefer email-based application
+	ApplyEmail string    `json:"apply_email"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type Job struct {
-	ID           string     `json:"id"` // UUID
+	ID           string     `json:"id"`
 	CompanyID    string     `json:"company_id"`
 	CompanyName  string     `json:"company_name,omitempty"`
 	Title        string     `json:"title"`

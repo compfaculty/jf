@@ -1,130 +1,152 @@
-# -----------------------------
-# Project settings (override on CLI: make run LOG_LEVEL=info)
-# -----------------------------
-APP_NAME       ?= jf
-BINARY         ?= bin/$(APP_NAME)
-PKG            ?= .
-PKGS           ?= ./...
-GO             ?= go
+# Job Finder - Test Coverage Makefile
 
-# Runtime config
-ADDR           ?= :8080
-DB_DIR         ?= data
-DB_PATH        ?= $(DB_DIR)/jobs.db
-CONFIG_PATH    ?= config/config.yaml
-LOG_LEVEL      ?= debug
-DB_DEBUG       ?= 1
-HTTP_RPS       ?= 0          # 0 = disabled (no rate limit)
-HTTP_BURST     ?= 10
-SQLITE_JOURNAL ?= WAL        # set to DELETE for Docker Desktop on Windows
+.PHONY: test test-unit test-integration test-performance benchmark coverage coverage-html coverage-xml clean test-deps
 
-# Build config
-CGO_ENABLED    ?= 0          # modernc.org/sqlite is pure Go; keep CGO off
-GO_BUILD_FLAGS ?= -trimpath
-LD_EXTRA       ?=
-# You can inject version info here if you add variables in code:
-# LD_EXTRA     += -X 'main.version=$(shell git describe --tags --dirty --always 2>/dev/null || echo dev)'
-# LD_EXTRA     += -X 'main.buildTime=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
+# Test targets
+test: test-unit test-integration test-performance
 
-LDFLAGS        ?= -s -w $(LD_EXTRA)
+test-unit:
+	@echo "Running unit tests..."
+	go test -v -race -timeout=30s ./internal/strutil/... ./internal/utils/...
 
-# Docker
-IMAGE          ?= $(APP_NAME):latest
-DOCKER_BUILD_ARGS ?=
+test-integration:
+	@echo "Running integration tests..."
+	go test -v -race -timeout=60s ./internal/repo/... ./internal/httpx/...
 
-# Default goal
-.DEFAULT_GOAL := help
+test-performance:
+	@echo "Running performance tests..."
+	go test -v -timeout=120s ./internal/utils/... -run="TestPerformance|TestConcurrency|TestMemory"
 
-# -----------------------------
-# Utility
-# -----------------------------
-.PHONY: help
-help: ## Show this help
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make \033[36m<TARGET>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_\-\/]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0,5) } ' $(MAKEFILE_LIST)
+benchmark:
+	@echo "Running benchmarks..."
+	go test -bench=. -benchmem -benchtime=5s ./internal/strutil/... ./internal/utils/... ./internal/repo/... ./internal/httpx/...
 
-# -----------------------------
-# Go hygiene
-# -----------------------------
-.PHONY: tidy
-tidy: ## go mod tidy
-	$(GO) mod tidy
+# Coverage targets
+coverage:
+	@echo "Generating test coverage..."
+	go test -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -func=coverage.out
 
-.PHONY: fmt
-fmt: ## go fmt
-	$(GO) fmt $(PKGS)
+coverage-html:
+	@echo "Generating HTML coverage report..."
+	go test -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
 
-.PHONY: vet
-vet: ## go vet
-	$(GO) vet $(PKGS)
+coverage-xml:
+	@echo "Generating XML coverage report..."
+	go test -coverprofile=coverage.out -covermode=atomic ./...
+	gocov convert coverage.out | gocov-xml > coverage.xml
 
-.PHONY: test
-test: ## run unit tests
-	$(GO) test -v $(PKGS)
+# Test with different build tags
+test-all:
+	@echo "Running all tests with different configurations..."
+	go test -v -race -timeout=30s ./...
+	go test -v -race -timeout=30s -tags=integration ./...
+	go test -v -race -timeout=30s -tags=performance ./...
 
-# -----------------------------
-# Build & run locally
-# -----------------------------
-$(BINARY): ## build binary
-	@mkdir -p $(dir $(BINARY))
-	CGO_ENABLED=$(CGO_ENABLED) $(GO) build $(GO_BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
+# Stress tests
+stress-test:
+	@echo "Running stress tests..."
+	go test -v -race -timeout=300s -run="TestConcurrency|TestPerformance" -count=10 ./internal/utils/...
 
-.PHONY: build
-build: tidy fmt vet $(BINARY) ## build all (tidy, fmt, vet, build)
+# Memory tests
+memtest:
+	@echo "Running memory tests..."
+	go test -v -timeout=60s -run="TestMemory" ./internal/utils/...
 
-.PHONY: run
-run: build ## run the server locally with env vars
-	@mkdir -p $(DB_DIR)
-	JF_ADDR="$(ADDR)" \
-	JFV2_DB_PATH="$(DB_PATH)" \
-	JF_CONFIG_PATH="$(CONFIG_PATH)" \
-	JF_LOG_LEVEL="$(LOG_LEVEL)" \
-	JF_DB_DEBUG="$(DB_DEBUG)" \
-	JF_HTTP_RPS="$(HTTP_RPS)" \
-	JF_HTTP_BURST="$(HTTP_BURST)" \
-	JF_SQLITE_JOURNAL="$(SQLITE_JOURNAL)" \
-	./$(BINARY)
+# Race condition tests
+race-test:
+	@echo "Running race condition tests..."
+	go test -race -timeout=60s ./...
 
-.PHONY: clean
-clean: ## remove build artifacts
-	rm -rf bin
+# Clean up
+clean:
+	@echo "Cleaning up test artifacts..."
+	rm -f coverage.out coverage.html coverage.xml
+	rm -f *.test
+	go clean -testcache
 
-# -----------------------------
-# Docker
-# -----------------------------
-.PHONY: docker-build
-docker-build: ## docker build image (IMAGE=$(IMAGE))
-	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE) .
+# Test dependencies
+test-deps:
+	@echo "Installing test dependencies..."
+	go install github.com/axw/gocov/gocov@latest
+	go install github.com/AlekSi/gocov-xml@latest
 
-# Linux/macOS friendly run (bind-mount ./data -> /data)
-.PHONY: docker-run
-docker-run: ## run container with host ./data bind-mounted as /data
-	@mkdir -p $(DB_DIR)
-	docker run --rm -it \
-		-p 8080:8080 \
-		-v "$$PWD/$(DB_DIR):/data:rw" \
-		-v "$$PWD:/app:ro" \
-		-w /app \
-		-e JF_ADDR="$(ADDR)" \
-		-e JFV2_DB_PATH="/data/jobs.db" \
-		-e JF_CONFIG_PATH="$(CONFIG_PATH)" \
-		-e JF_LOG_LEVEL="$(LOG_LEVEL)" \
-		-e JF_DB_DEBUG="$(DB_DEBUG)" \
-		-e JF_HTTP_RPS="$(HTTP_RPS)" \
-		-e JF_HTTP_BURST="$(HTTP_BURST)" \
-		-e JF_SQLITE_JOURNAL="$(SQLITE_JOURNAL)" \
-		$(IMAGE)
+# CI/CD targets
+ci-test:
+	@echo "Running CI test suite..."
+	go test -v -race -timeout=60s -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -func=coverage.out | tail -1
 
+ci-benchmark:
+	@echo "Running CI benchmarks..."
+	go test -bench=. -benchmem -benchtime=3s ./internal/utils/...
 
-.PHONY: print-env
-print-env: ## print resolved environment used by 'run' target
-	@echo "ADDR              = $(ADDR)"
-	@echo "DB_DIR            = $(DB_DIR)"
-	@echo "DB_PATH           = $(DB_PATH)"
-	@echo "CONFIG_PATH       = $(CONFIG_PATH)"
-	@echo "LOG_LEVEL         = $(LOG_LEVEL)"
-	@echo "DB_DEBUG          = $(DB_DEBUG)"
-	@echo "HTTP_RPS          = $(HTTP_RPS)"
-	@echo "HTTP_BURST        = $(HTTP_BURST)"
-	@echo "SQLITE_JOURNAL    = $(SQLITE_JOURNAL)"
-	@echo "CGO_ENABLED       = $(CGO_ENABLED)"
-	@echo "IMAGE             = $(IMAGE)"
+# Development targets
+test-watch:
+	@echo "Watching for changes and running tests..."
+	@while true; do \
+		inotifywait -e modify -r . --include='.*\.go$$' 2>/dev/null && \
+		echo "Changes detected, running tests..." && \
+		go test -v -race -timeout=30s ./internal/strutil/... ./internal/utils/...; \
+	done
+
+# Test specific packages
+test-strutil:
+	go test -v -race ./internal/strutil/...
+
+test-utils:
+	go test -v -race ./internal/utils/...
+
+test-repo:
+	go test -v -race ./internal/repo/...
+
+test-httpx:
+	go test -v -race ./internal/httpx/...
+
+# Performance profiling
+profile-cpu:
+	@echo "Generating CPU profile..."
+	go test -cpuprofile=cpu.prof -bench=. ./internal/utils/...
+	go tool pprof cpu.prof
+
+profile-mem:
+	@echo "Generating memory profile..."
+	go test -memprofile=mem.prof -bench=. ./internal/utils/...
+	go tool pprof mem.prof
+
+# Test coverage by package
+coverage-strutil:
+	go test -coverprofile=strutil.out ./internal/strutil/...
+	go tool cover -func=strutil.out
+
+coverage-utils:
+	go test -coverprofile=utils.out ./internal/utils/...
+	go tool cover -func=utils.out
+
+coverage-repo:
+	go test -coverprofile=repo.out ./internal/repo/...
+	go tool cover -func=repo.out
+
+# Help target
+help:
+	@echo "Available targets:"
+	@echo "  test              - Run all tests"
+	@echo "  test-unit         - Run unit tests only"
+	@echo "  test-integration  - Run integration tests only"
+	@echo "  test-performance  - Run performance tests only"
+	@echo "  benchmark         - Run benchmarks"
+	@echo "  coverage          - Generate coverage report"
+	@echo "  coverage-html     - Generate HTML coverage report"
+	@echo "  coverage-xml      - Generate XML coverage report"
+	@echo "  stress-test       - Run stress tests"
+	@echo "  memtest           - Run memory tests"
+	@echo "  race-test         - Run race condition tests"
+	@echo "  clean             - Clean up test artifacts"
+	@echo "  test-deps         - Install test dependencies"
+	@echo "  ci-test           - Run CI test suite"
+	@echo "  ci-benchmark      - Run CI benchmarks"
+	@echo "  test-watch        - Watch for changes and run tests"
+	@echo "  profile-cpu       - Generate CPU profile"
+	@echo "  profile-mem       - Generate memory profile"

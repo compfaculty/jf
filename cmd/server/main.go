@@ -24,13 +24,14 @@ func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// --- Config ---
+	// --- HttpClientConfig ---
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
 
 	// --- DB (auto-migrate inside) ---
+	// Temporarily using SQLite due to DuckDB Windows binding issues
 	r, err := repo.NewSQLite("data/jobs.db")
 	if err != nil {
 		log.Fatalf("db open: %v", err)
@@ -51,7 +52,7 @@ func main() {
 	defer wp.StopAndWait()
 
 	// --- Scanner manager
-	sm := scanner.NewManager(r, cfg, httpDoer, bp, wp)
+	sm := scanner.NewScanner(r, cfg, httpDoer, bp, wp)
 
 	// --- HTTP server ---
 	router := server.NewRouter(r, sm, cfg, wp)

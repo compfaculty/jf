@@ -61,7 +61,7 @@ func ensureClient(c Doer) Doer {
 	if c != nil {
 		return c
 	}
-	return httpx.New(httpx.Config{
+	return httpx.New(httpx.HttpClientConfig{
 		Timeout:      30 * time.Second,
 		RPS:          1.5, // polite default; tweak per your needs
 		Burst:        4,   // small burst to smooth bursts of links

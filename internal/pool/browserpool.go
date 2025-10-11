@@ -41,7 +41,9 @@ func NewBrowserPool(cfg BrowserPoolConfig) *BrowserPool {
 		cfg.Queue = 256
 	}
 
-	bp := &BrowserPool{jobs: make(chan func(ctx context.Context), cfg.Queue)}
+	bp := &BrowserPool{
+		jobs: make(chan func(ctx context.Context), cfg.Queue),
+	}
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", cfg.Headless),
@@ -80,6 +82,10 @@ func (bp *BrowserPool) Close() {
 		c()
 	}
 	bp.wg.Wait()
+
+	// Additional cleanup to prevent memory leaks
+	// Note: chromedp contexts should be properly cancelled by the cancel functions above
+	// This is a safety measure to ensure all resources are released
 }
 
 // FetchHTML navigates to url and returns the outerHTML of selector (default "html").

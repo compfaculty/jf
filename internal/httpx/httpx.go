@@ -17,8 +17,8 @@ const DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
 	"AppleWebKit/537.36 (KHTML, like Gecko) " +
 	"Chrome/139.0.0.0 Safari/537.36"
 
-// Config controls behavior of the Client.
-type Config struct {
+// HttpClientConfig controls behavior of the Client.
+type HttpClientConfig struct {
 	Timeout      time.Duration
 	RPS          float64
 	Burst        int
@@ -38,7 +38,7 @@ type Client struct {
 	bwMax  time.Duration
 }
 
-func New(cfg Config) *Client {
+func New(cfg HttpClientConfig) *Client {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 30 * time.Second
 	}
@@ -65,13 +65,15 @@ func New(cfg Config) *Client {
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 100,
+		MaxIdleConns:        100, // Reduced from 200 for better memory usage
+		MaxIdleConnsPerHost: 10,  // Reduced from 100 for better resource management
 		IdleConnTimeout:     90 * time.Second,
 
 		TLSHandshakeTimeout:   5 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ForceAttemptHTTP2:     true,
+		DisableCompression:    false,            // Enable compression for better performance
+		ResponseHeaderTimeout: 10 * time.Second, // Add timeout for response headers
 	}
 
 	hc := &http.Client{

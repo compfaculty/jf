@@ -1,9 +1,9 @@
 package validators
 
-import util "jf/internal/utils"
+import "jf/internal/strutil"
 
 func HeuristicMatchScore(text string, good, bad map[string]struct{}) float64 {
-	tok := util.Tokens(text)
+	tok := strutil.Tokens(text)
 	if len(tok) == 0 {
 		return 0
 	}
@@ -15,7 +15,7 @@ func HeuristicMatchScore(text string, good, bad map[string]struct{}) float64 {
 			badHits++
 		}
 	}
-	badPenalty := util.Min(0.60, 0.15*float64(badHits))
+	badPenalty := strutil.Min(0.60, 0.15*float64(badHits))
 
 	// good precision/recall
 	jobGood := 0
@@ -29,7 +29,7 @@ func HeuristicMatchScore(text string, good, bad map[string]struct{}) float64 {
 	var precision, recall float64
 	if jobGood > 0 {
 		precision = float64(jobGood) / float64(len(tok))
-		recall = float64(len(uniq)) / util.Max(1, float64(len(good)))
+		recall = float64(len(uniq)) / strutil.Max(1, float64(len(good)))
 	}
 
 	score := 0.65*precision + 0.35*recall - badPenalty
