@@ -20,6 +20,8 @@ type Job struct {
 	URL          string     `json:"url"`
 	Location     string     `json:"location"`
 	Description  string     `json:"description"`
+	HREmail      string     `json:"hr_email,omitempty"`
+	HRPhone      string     `json:"hr_phone,omitempty"`
 	DiscoveredAt time.Time  `json:"discovered_at"`
 	Applied      bool       `json:"applied"`
 	AppliedAt    *time.Time `json:"applied_at,omitempty"`
@@ -56,4 +58,6 @@ type ScrapedJob struct {
 	Description string
 	Company     string
 	DatePosted  string
+	HREmail     string
+	HRPhone     string
 }

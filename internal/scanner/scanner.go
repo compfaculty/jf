@@ -130,6 +130,8 @@ func (m *Scanner) run(ctx context.Context) {
 				j.URL = strings.TrimSpace(sj.URL)
 				j.Location = strings.TrimSpace(sj.Location)
 				j.Description = strings.TrimSpace(sj.Description)
+				j.HREmail = strings.TrimSpace(sj.HREmail)
+				j.HRPhone = strings.TrimSpace(sj.HRPhone)
 
 				if err := m.repo.UpsertJob(cctx, j); err != nil {
 					m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", c.Name, j.URL, err))

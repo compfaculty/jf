@@ -129,6 +129,18 @@
             min-width: 0;
         }
 
+        .cell.co-loc {
+            white-space: normal;
+            line-height: 1.4;
+        }
+
+        .contact-info {
+            font-size: 11px;
+            color: var(--brand);
+            margin-top: 4px;
+            word-break: break-all;
+        }
+
         .ellipsis {
             white-space: nowrap;
             overflow: hidden;
@@ -439,6 +451,7 @@
                        autocomplete="off"/>
             </div>
             <button id="refreshBtn">Refresh</button>
+            <button id="latestBtn">Show latest</button>
             <button id="applyBtn" class="primary" disabled>Apply selected</button>
             <button id="deleteBtn" disabled>Delete selected</button>
             <span id="countText" class="muted" aria-live="polite"></span>
@@ -475,6 +488,7 @@
     const list = $("#list");
     const q = $("#q");
     const refreshBtn = $("#refreshBtn");
+    const latestBtn = $("#latestBtn");
     const applyBtn = $("#applyBtn");
     const deleteBtn = $("#deleteBtn");
     const prevBtn = $("#prevBtn");
@@ -538,6 +552,13 @@
     refreshBtn.addEventListener('click', () => {
         offset = 0;
         loadJobs();
+    });
+    latestBtn.addEventListener('click', () => {
+        q.value = '';
+        urlParams.delete('q');
+        offset = 0;
+        loadJobs();
+        toast('Showing latest', 'Cleared search and loaded newest jobs.');
     });
     prevBtn.addEventListener('click', () => {
         offset = Math.max(0, offset - limit);
@@ -661,6 +682,8 @@
             const discovered = j.discovered_at ? new Date(j.discovered_at) : null;
             const when = discovered ? `${ago(discovered)} ago` : '';
             const descHTML = formatDesc(j.description || '');
+            // Debug: log hr_email to console to verify it's in the data
+            if (j.hr_email) console.log(`[DEBUG] Job ${j.title} has hr_email:`, j.hr_email);
 
             const row = document.createElement('div');
             row.className = 'row';
@@ -672,8 +695,10 @@
         <div class="cell title ellipsis">
           <h4>${statusIcon} <a href="${url}" target="_blank" rel="noopener" class="job-link">${escapeHtml(j.title || '(no title)')}</a></h4>
         </div>
-        <div class="cell co-loc ellipsis meta-sm">
+        <div class="cell co-loc meta-sm">
           🏢 ${escapeHtml(company)} ${loc ? ` • 📍 ${escapeHtml(loc)}` : ''}
+          ${j.hr_email ? `<br/><span style="color: var(--brand);">✉ <a href="mailto:${escapeHtml(j.hr_email)}" style="color: inherit; text-decoration: underline;">${escapeHtml(j.hr_email)}</a></span>` : ''}
+          ${j.hr_phone ? `<br/><span style="color: var(--brand);">📞 <a href="tel:${escapeHtml(j.hr_phone)}" style="color: inherit; text-decoration: underline;">${escapeHtml(j.hr_phone)}</a></span>` : ''}
         </div>
         <div class="cell age meta-sm right" title="${discovered ? discovered.toLocaleString() : ''}">
           🕒 ${when || ''}
@@ -687,7 +712,7 @@
 
             // preview hover
             const link = row.querySelector('.job-link');
-            attachPreview(link, {title: j.title || '(no title)', company, location: loc, descHTML});
+            attachPreview(link, {title: j.title || '(no title)', company, location: loc, hrEmail: j.hr_email || '', hrPhone: j.hr_phone || '', descHTML});
 
             // checkbox selection listeners
             const cb = row.querySelector('input[type="checkbox"]');
@@ -721,7 +746,7 @@
         if (!ids.length) return;
         if (!confirm(`Delete ${ids.length} job(s)? This cannot be undone.`)) return;
         try {
-            const res = await fetchJSON('/api/jobs/delete', {
+            const res = await fetchJSON('/api/delete', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ids})
@@ -755,6 +780,7 @@
         const boxes = $$('#list input[type="checkbox"]');
         const enabled = boxes.filter(b => !b.disabled);
         const checked = enabled.filter(b => b.checked);
+        const applied = boxes.filter(b => b.disabled);
 
         selCount.textContent = `${checked.length} selected`;
         applyBtn.disabled = checked.length === 0;
@@ -763,9 +789,8 @@
         selectAll.indeterminate = checked.length > 0 && !allChecked;
         selectAll.checked = allChecked;
 
-        // Delete is allowed for any selected OR applied (disabled) when includeApplied later
-        const anyApplied = boxes.some(b => b.disabled);
-        deleteBtn.disabled = !(checked.length > 0 || anyApplied);
+        // Delete is allowed when there are checked items or applied jobs (disabled checkboxes)
+        deleteBtn.disabled = checked.length === 0 && applied.length === 0;
     }
 
     // ------- Preview hover card -------
@@ -779,7 +804,7 @@
         window.addEventListener('scroll', hidePreviewSoon, {passive: true});
     }
 
-    function showPreview(e, {title, company, location, descHTML}) {
+    function showPreview(e, {title, company, location, hrEmail, hrPhone, descHTML}) {
         clearTimeout(hideTimer);
         if (!previewEl) {
             previewEl = document.createElement('div');
@@ -788,7 +813,10 @@
         }
         const heading = `<h5>${escapeHtml(title)}</h5>`;
         const meta = (company || location) ? `<p class="meta-sm" style="margin-bottom:8px;">${escapeHtml(company)}${company && location ? ' • ' : ''}${escapeHtml(location)}</p>` : '';
-        previewEl.innerHTML = heading + meta + descHTML;
+        let contact = '';
+        if (hrEmail) contact += `<p class="meta-sm" style="margin-bottom:8px; color: var(--brand);">✉ <a href="mailto:${escapeHtml(hrEmail)}" style="color: inherit; text-decoration: underline;">${escapeHtml(hrEmail)}</a></p>`;
+        if (hrPhone) contact += `<p class="meta-sm" style="margin-bottom:8px; color: var(--brand);">📞 <a href="tel:${escapeHtml(hrPhone)}" style="color: inherit; text-decoration: underline;">${escapeHtml(hrPhone)}</a></p>`;
+        previewEl.innerHTML = heading + meta + contact + descHTML;
         movePreview(e);
         previewEl.style.opacity = '1';
     }

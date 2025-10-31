@@ -107,6 +107,8 @@ CREATE TABLE IF NOT EXISTS jobs(
   canonical_url TEXT NOT NULL DEFAULT '',
   location      TEXT,
   description   TEXT,
+  hr_email      TEXT NOT NULL DEFAULT '',
+  hr_phone      TEXT NOT NULL DEFAULT '',
   discovered_at TIMESTAMP NOT NULL,
   applied       INTEGER NOT NULL DEFAULT 0,
   applied_at    TIMESTAMP,
@@ -244,17 +246,19 @@ func (r *DuckRepo) UpsertJob(ctx context.Context, j *models.Job) error {
 
 	//goland:noinspection SqlResolve
 	q := `
-INSERT INTO jobs(id,company_id,title,url,canonical_url,location,description,discovered_at,applied,applied_at)
-VALUES(?,?,?,?,?,?,?,?,?,?)
+INSERT INTO jobs(id,company_id,title,url,canonical_url,location,description,hr_email,hr_phone,discovered_at,applied,applied_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(company_id, canonical_url) DO UPDATE SET
   title=excluded.title,
   url=excluded.url,
   location=excluded.location,
-  description=excluded.description
+  description=excluded.description,
+  hr_email=excluded.hr_email,
+  hr_phone=excluded.hr_phone
 `
 	start := time.Now()
 	res, err := r.exec(ctx, q,
-		j.ID, j.CompanyID, j.Title, j.URL, canon, j.Location, j.Description, j.DiscoveredAt, boolToInt(j.Applied), j.AppliedAt)
+		j.ID, j.CompanyID, j.Title, j.URL, canon, j.Location, j.Description, j.HREmail, j.HRPhone, j.DiscoveredAt, boolToInt(j.Applied), j.AppliedAt)
 	dur := time.Since(start)
 	if err != nil {
 		r.infof("UpsertJob err url=%q canon=%q company_id=%s dur=%s err=%v", j.URL, canon, j.CompanyID, dur, err)
@@ -352,6 +356,8 @@ SELECT j.id,
        j.url,
        j.location,
        j.description,
+       j.hr_email,
+       j.hr_phone,
        j.discovered_at,
        j.applied,
        j.applied_at
@@ -374,7 +380,7 @@ LIMIT ? OFFSET ?`, whereSQL)
 		var appliedInt int
 		var appliedAt sql.NullTime
 		if err = rows.Scan(
-			&j.ID, &j.CompanyID, &j.CompanyName, &j.Title, &j.URL, &j.Location, &j.Description,
+			&j.ID, &j.CompanyID, &j.CompanyName, &j.Title, &j.URL, &j.Location, &j.Description, &j.HREmail, &j.HRPhone,
 			&j.DiscoveredAt, &appliedInt, &appliedAt,
 		); err != nil {
 			return nil, 0, err
@@ -424,7 +430,7 @@ func (r *DuckRepo) ListJobsByIDs(ctx context.Context, ids []string) ([]models.Jo
 	}
 	ph := strings.Repeat("?,", len(ids))
 	ph = ph[:len(ph)-1]
-	q := fmt.Sprintf(`SELECT id, title, url FROM jobs WHERE id IN (%s)`, ph)
+	q := fmt.Sprintf(`SELECT id, title, url, hr_email, hr_phone FROM jobs WHERE id IN (%s)`, ph)
 
 	args := make([]any, len(ids))
 	for i, id := range ids {
@@ -440,7 +446,7 @@ func (r *DuckRepo) ListJobsByIDs(ctx context.Context, ids []string) ([]models.Jo
 	out := make([]models.Job, 0, len(ids))
 	for rows.Next() {
 		var j models.Job
-		if err := rows.Scan(&j.ID, &j.Title, &j.URL); err != nil {
+		if err := rows.Scan(&j.ID, &j.Title, &j.URL, &j.HREmail, &j.HRPhone); err != nil {
 			return nil, err
 		}
 		out = append(out, j)

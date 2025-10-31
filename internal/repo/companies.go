@@ -6,17 +6,17 @@ var embeddedCompanies = []struct {
 	URL   string
 	Email string
 }{
-	{"40Seas", "https://www.40seas.com/careers#positions", ""},
-	{"Agrematch", "https://www.agrematch.com/careers", ""},
-	{"Agora Real", "https://agorareal.com/careers/", ""},
-	{"Aidoc", "https://www.aidoc.com/about/careers/", ""},
-	{"AI21", "https://www.ai21.com/careers/", ""},
-	{"Akeyless", "https://www.akeyless.io/careers/#positions", ""},
+	// {"40Seas", "https://www.40seas.com/careers#positions", ""},
+	// {"Agrematch", "https://www.agrematch.com/careers", ""},
+	// {"Agora Real", "https://agorareal.com/careers/", ""},
+	// {"Aidoc", "https://www.aidoc.com/about/careers/", ""},
+	// {"AI21", "https://www.ai21.com/careers/", ""},
+	// {"Akeyless", "https://www.akeyless.io/careers/#positions", ""},
 	//{"Allot", "https://www.allot.com/careers/search/"},
 	//{"Amdocs", "https://jobs.amdocs.com/careers"},
 	//{"Anecdotes", "https://www.anecdotes.ai/careers"},
 	//{"Arbe Robotics", "https://arberobotics.com/career/"},
-	{"Audiocodes", "https://www.audiocodes.com/careers/positions?countryGroup=Israel", ""},
+	// {"Audiocodes", "https://www.audiocodes.com/careers/positions?countryGroup=Israel", ""},
 	//{"Axonius", "https://www.axonius.com/company/careers/open-jobs"},
 	//{"Buildots", "https://buildots.com/careers/co/development/"},
 	//{"C2A Security", "https://c2a-sec.com/careers/"},
@@ -35,7 +35,8 @@ var embeddedCompanies = []struct {
 	//{"ParaZero", "https://parazero.com/careers/"},
 	//{"Pentera", "https://pentera.io/careers/"},
 	//{"Perion", "https://perion.com/careers/"},
-	{"Secret TLV", "https://jobs.secrettelaviv.com/", ""},
+	// {"Secret TLV", "https://jobs.secrettelaviv.com/", ""},
+	{"Telfed Job Board", "https://www.telfed.org.il/job-board/", ""},
 	//{"Seemplicity", "https://seemplicity.io/about/careers/"},
 	//{"Ceragon Networks", "https://www.ceragon.com/about-ceragon/careers"},
 	//{"Varonis", "https://careers.varonis.com/"},
@@ -52,4 +53,12 @@ var embeddedCompanies = []struct {
 	//{"Komodor", "https://komodor.com/careers/#open-positions-title"},
 	//{"LayerX Security", "https://layerxsecurity.com/careers"},
 	//{"Mobilicom", "https://mobilicom.com/careers/"},
+
+	// Newly supported boards/scrapers
+	// {"Greenhouse (demo)", "https://boards.greenhouse.io/example", ""},
+	// {"Lever (demo)", "https://jobs.lever.co/example", ""},
+	// {"Ashby (demo)", "https://jobs.ashbyhq.com/example", ""},
+	// {"SmartRecruiters (demo)", "https://jobs.smartrecruiters.com/SmartRecruiters", ""},
+	// {"Recruitee (demo)", "https://elastic.recruitee.com", ""},
+	// {"Workable (demo)", "https://apply.workable.com/example", ""},
 }

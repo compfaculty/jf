@@ -62,6 +62,8 @@ type Config struct {
 	// business
 	ApplyForm ApplyForm `yaml:"apply_form"`
 
+	Mail MailConfig `yaml:"mail"`
+
 	CVRoles []string `yaml:"cv_roles"`
 
 	GoodKeywords []string `yaml:"good_keywords"`

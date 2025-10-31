@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"jf/internal/config"
+	"jf/internal/emailx"
 	"jf/internal/models"
 	"jf/internal/repo"
 	"jf/internal/scanner"
@@ -128,6 +129,16 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, cfg *config.Config, wp *pond.Wo
 		// Per-request group bound to the client's context (deadline/cancel-friendly)
 		group, gctx := wp.GroupContext(req.Context())
 
+		// Build email sender once per request
+		mailer := emailx.BuildSMTPMailer(&cfg.Mail)
+		applicant := emailx.Applicant{
+			FullName:  strings.TrimSpace(cfg.ApplyForm.FirstName + " " + cfg.ApplyForm.LastName),
+			Email:     cfg.ApplyForm.Email,
+			Phone:     cfg.ApplyForm.Phone,
+			LinkedIn:  "",
+			Portfolio: "",
+		}
+
 		var mu sync.Mutex
 		for i := range jobs {
 			j := jobs[i] // capture
@@ -147,26 +158,60 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, cfg *config.Config, wp *pond.Wo
 				ok := false
 				errMsg := ""
 
-				switch {
-				case strings.Contains(host, "jobs.secrettelaviv.com"):
-					sta := scrape.NewSecretTelAviv(models.Company{Name: "Secret Tel Aviv"}, http.DefaultClient)
-					rr, err := sta.ApplyJobs(req.Context(), []models.Job{j}, cfg)
-					if err != nil {
-						errMsg = "ApplyJobs error: " + err.Error()
-						log.Printf("[APPLY][STA] id=%s err=%s", j.ID, errMsg)
-					} else if len(rr) > 0 {
-						ok = rr[0].OK
-						if !ok && rr[0].Message != "" {
-							errMsg = rr[0].Message
-						}
-						log.Printf("[APPLY][STA] id=%s ok=%v status=%d msg=%q", j.ID, rr[0].OK, rr[0].Status, rr[0].Message)
-					} else {
-						errMsg = "ApplyJobs returned empty results"
-						log.Printf("[APPLY][STA] id=%s err=%s", j.ID, errMsg)
+				// If we have HR email on the job, prefer emailing CV directly
+				if strings.TrimSpace(j.HREmail) != "" {
+					subj := "Application: " + j.Title + " — " + applicant.FullName
+					// Reuse CV selection
+					cvPath, _ := emailx.ChooseResume(j.Title, &cfg.Mail)
+					body := strings.Builder{}
+					if strings.TrimSpace(applicant.FullName) != "" {
+						body.WriteString("Hi,\n\n")
 					}
-				default:
-					errMsg = "apply not supported for host"
-					log.Printf("[APPLY] id=%s host=%s unsupported", j.ID, host)
+					body.WriteString("I'm applying for the " + strings.TrimSpace(j.Title) + " role.\n")
+					if strings.TrimSpace(j.URL) != "" {
+						body.WriteString("Job link: " + strings.TrimSpace(j.URL) + "\n")
+					}
+					if strings.TrimSpace(applicant.LinkedIn) != "" {
+						body.WriteString("LinkedIn: " + applicant.LinkedIn + "\n")
+					}
+					if strings.TrimSpace(applicant.Portfolio) != "" {
+						body.WriteString("Portfolio: " + applicant.Portfolio + "\n")
+					}
+					body.WriteString("\nBest,\n" + applicant.FullName + "\n")
+
+					atts := []string{}
+					if strings.TrimSpace(cvPath) != "" {
+						atts = append(atts, cvPath)
+					}
+					if err := mailer.Send([]string{strings.TrimSpace(j.HREmail)}, subj, body.String(), atts); err == nil {
+						ok = true
+						log.Printf("[APPLY][EMAIL] id=%s to=%s ok", j.ID, j.HREmail)
+					} else {
+						errMsg = "email send error: " + err.Error()
+						log.Printf("[APPLY][EMAIL] id=%s err=%v", j.ID, err)
+					}
+				} else {
+					switch {
+					case strings.Contains(host, "jobs.secrettelaviv.com"):
+						sta := scrape.NewSecretTelAviv(models.Company{Name: "Secret Tel Aviv"}, http.DefaultClient)
+						rr, err := sta.ApplyJobs(req.Context(), []models.Job{j}, cfg)
+						if err != nil {
+							errMsg = "ApplyJobs error: " + err.Error()
+							log.Printf("[APPLY][STA] id=%s err=%s", j.ID, errMsg)
+						} else if len(rr) > 0 {
+							ok = rr[0].OK
+							if !ok && rr[0].Message != "" {
+								errMsg = rr[0].Message
+							}
+							log.Printf("[APPLY][STA] id=%s ok=%v status=%d msg=%q", j.ID, rr[0].OK, rr[0].Status, rr[0].Message)
+						} else {
+							errMsg = "ApplyJobs returned empty results"
+							log.Printf("[APPLY][STA] id=%s err=%s", j.ID, errMsg)
+						}
+					default:
+						errMsg = "apply not supported for host"
+						log.Printf("[APPLY] id=%s host=%s unsupported", j.ID, host)
+					}
 				}
 
 				// Collect results

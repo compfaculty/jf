@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -41,16 +42,29 @@ func NewBrowserPool(cfg BrowserPoolConfig) *BrowserPool {
 		cfg.Queue = 256
 	}
 
-	bp := &BrowserPool{
+    bp := &BrowserPool{
 		jobs: make(chan func(ctx context.Context), cfg.Queue),
 	}
 
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", cfg.Headless),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
-		//chromedp.Flag("user-data-dir", `/mnt/c/Users/compf/chrome-profile-copy`),
-	)
+	log.Printf("[BROWSER] init workers=%d headless=%v queue=%d nav_wait=%s nav_timeout=%s",
+		cfg.Workers, cfg.Headless, cfg.Queue, cfg.NavWait, cfg.NavTimeout)
+
+    opts := append(chromedp.DefaultExecAllocatorOptions[:],
+        chromedp.Flag("headless", cfg.Headless),
+        chromedp.Flag("disable-gpu", true),
+        chromedp.Flag("no-sandbox", true),
+        chromedp.Flag("mute-audio", true),
+    )
+
+    // When not headless, try to keep the browser unobtrusive
+    if !cfg.Headless {
+        opts = append(opts,
+            chromedp.Flag("start-minimized", true),
+            chromedp.Flag("window-size", "640,480"),           // small window
+            chromedp.Flag("window-position", "20000,20000"),   // move off-screen on most setups
+            chromedp.Flag("enable-automation", false),          // reduce automation infobar
+        )
+    }
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
 	for i := 0; i < cfg.Workers; i++ {

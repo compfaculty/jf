@@ -36,6 +36,14 @@ type Browser interface {
 // Pass nil for browser if you don't want JS fallback in Generic.
 func NewJobScraper(c models.Company, client Doer, browser Browser, wp *pond.WorkerPool) JobScraper {
 	switch {
+	case strings.Contains(c.CareersURL, "telfed.org.il/job-board") || strings.Contains(c.CareersURL, "telfed.org.il/job"):
+		// Telfed requires BrowserPool due to Cloudflare protection
+		if browser == nil {
+			// Fallback to generic if no browser (will likely fail due to Cloudflare)
+			return NewGeneric(c, client, browser, wp)
+		}
+		// Note: avoid log import here to keep factory lean; rely on Telfed scraper logs
+		return NewTelfed(c, browser, wp)
 	case strings.Contains(c.CareersURL, "secrettelaviv.com"):
 
 		return NewSecretTelAviv(c, client)
