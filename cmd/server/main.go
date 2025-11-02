@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"jf/internal/config"
-	"jf/internal/feed"
 	"jf/internal/httpx"
 	"jf/internal/pool"
 	"jf/internal/repo"
@@ -58,17 +57,9 @@ func main() {
 	// --- Scanner manager
 	sm := scanner.NewScanner(r, cfg, httpDoer, bp, wp)
 
-	// --- RSS Feed monitor (reads aggregators from database)
-	feedParser := feed.NewParser(httpDoer)
-	feedMonitor := feed.NewMonitor(r, feedParser, cfg)
-	if err := feedMonitor.Start(); err != nil {
-		log.Printf("[FEED] Failed to start monitor: %v", err)
-	} else {
-		defer feedMonitor.Stop()
-	}
-
 	// --- HTTP server ---
-	router := server.NewRouter(r, sm, feedMonitor, cfg, wp)
+	// RSS feeds are now processed on-demand during scan, no background monitoring
+	router := server.NewRouter(r, sm, nil, cfg, wp)
 	h := WithRecovery(WithRequestLogger(router, cfg.Debug))
 
 	httpSrv := &http.Server{

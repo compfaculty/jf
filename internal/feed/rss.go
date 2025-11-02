@@ -15,15 +15,15 @@ import (
 
 // RSS feed structures
 type RSSFeed struct {
-	XMLName xml.Name    `xml:"rss"`
-	Channel RSSChannel   `xml:"channel"`
+	XMLName xml.Name   `xml:"rss"`
+	Channel RSSChannel `xml:"channel"`
 }
 
 type RSSChannel struct {
 	Title       string    `xml:"title"`
 	Link        string    `xml:"link"`
 	Description string    `xml:"description"`
-	Items       []RSSItem  `xml:"item"`
+	Items       []RSSItem `xml:"item"`
 }
 
 type RSSItem struct {
@@ -64,7 +64,7 @@ func (p *Parser) ParseFeed(ctx context.Context, url string) ([]RSSItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", "JobFinder/1.0")
 
 	resp, err := p.httpClient.Do(req)
@@ -97,7 +97,7 @@ func (p *Parser) ParseFeed(ctx context.Context, url string) ([]RSSItem, error) {
 // It creates a company entry if it doesn't exist based on the feed source name
 func ConvertItemsToJobs(items []RSSItem, feedName string, feedURL string) []models.Job {
 	jobs := make([]models.Job, 0, len(items))
-	
+
 	// Extract company name from feed name or use a default
 	companyName := strings.TrimSpace(feedName)
 	if companyName == "" {
@@ -108,13 +108,13 @@ func ConvertItemsToJobs(items []RSSItem, feedName string, feedURL string) []mode
 		title := strings.TrimSpace(item.Title)
 		link := strings.TrimSpace(item.Link)
 		rawDescription := strings.TrimSpace(item.Description)
-		
+
 		if title == "" || link == "" {
 			continue
 		}
 
 		// Strip HTML from description
-		description := stripHTML(rawDescription)
+		description := StripHTML(rawDescription)
 
 		// Parse publication date
 		var discoveredAt time.Time
@@ -140,16 +140,16 @@ func ConvertItemsToJobs(items []RSSItem, feedName string, feedURL string) []mode
 		}
 
 		// Extract location from description if available
-		location := extractLocation(description)
+		location := ExtractLocation(description)
 
 		job := models.Job{
 			CompanyName:  companyName,
 			Title:        title,
-			URL:           link,
-			Location:      location,
-			Description:   description, // Store stripped description
-			DiscoveredAt:  discoveredAt,
-			Applied:       false,
+			URL:          link,
+			Location:     location,
+			Description:  description, // Store stripped description
+			DiscoveredAt: discoveredAt,
+			Applied:      false,
 		}
 
 		jobs = append(jobs, job)
@@ -158,15 +158,15 @@ func ConvertItemsToJobs(items []RSSItem, feedName string, feedURL string) []mode
 	return jobs
 }
 
-// stripHTML removes HTML tags from text
-func stripHTML(html string) string {
+// StripHTML removes HTML tags from text
+func StripHTML(html string) string {
 	// Remove HTML tags using regex (simple approach)
 	// This regex matches <...> tags including attributes
 	htmlTagRegex := regexp.MustCompile(`<[^>]*>`)
-	
+
 	// Remove all HTML tags
 	text := htmlTagRegex.ReplaceAllString(html, "")
-	
+
 	// Decode common HTML entities
 	text = strings.ReplaceAll(text, "&nbsp;", " ")
 	text = strings.ReplaceAll(text, "&amp;", "&")
@@ -175,7 +175,7 @@ func stripHTML(html string) string {
 	text = strings.ReplaceAll(text, "&quot;", "\"")
 	text = strings.ReplaceAll(text, "&#39;", "'")
 	text = strings.ReplaceAll(text, "&apos;", "'")
-	
+
 	// Clean up extra whitespace
 	lines := strings.Split(text, "\n")
 	cleaned := make([]string, 0, len(lines))
@@ -185,12 +185,12 @@ func stripHTML(html string) string {
 			cleaned = append(cleaned, trimmed)
 		}
 	}
-	
+
 	return strings.Join(cleaned, "\n")
 }
 
-// extractLocation attempts to extract location information from description
-func extractLocation(description string) string {
+// ExtractLocation attempts to extract location information from description
+func ExtractLocation(description string) string {
 	// Common patterns in job descriptions
 	patterns := []string{
 		"Location:",
@@ -199,7 +199,7 @@ func extractLocation(description string) string {
 		"Локація:",
 		"Локація :",
 	}
-	
+
 	descLower := strings.ToLower(description)
 	for _, pattern := range patterns {
 		idx := strings.Index(descLower, strings.ToLower(pattern))
@@ -224,7 +224,7 @@ func extractLocation(description string) string {
 			}
 		}
 	}
-	
+
 	return ""
 }
 
@@ -233,13 +233,13 @@ func extractLocation(description string) string {
 // This handles cases like "&type" in text content which should be "&amp;type"
 func sanitizeXML(data []byte) []byte {
 	xmlStr := string(data)
-	
+
 	// Go's regexp doesn't support lookaheads, so we manually process the string
 	// Strategy: Find & followed by letters/numbers, check if followed by ; or #
-	
+
 	var result strings.Builder
 	result.Grow(len(xmlStr) + len(xmlStr)/10) // Pre-allocate some extra space
-	
+
 	i := 0
 	for i < len(xmlStr) {
 		if xmlStr[i] == '&' {
@@ -258,7 +258,7 @@ func sanitizeXML(data []byte) []byte {
 				i++
 				continue
 			}
-			
+
 			// Check if this is a named entity &word;
 			// Find where the word ends (non-alphanumeric or end of string)
 			j := i + 1
@@ -267,7 +267,7 @@ func sanitizeXML(data []byte) []byte {
 				(xmlStr[j] >= '0' && xmlStr[j] <= '9')) {
 				j++
 			}
-			
+
 			// Check what comes after the word
 			if j < len(xmlStr) && xmlStr[j] == ';' {
 				// This is a valid entity (ends with semicolon), copy as-is
@@ -284,7 +284,6 @@ func sanitizeXML(data []byte) []byte {
 			i++
 		}
 	}
-	
+
 	return []byte(result.String())
 }
-

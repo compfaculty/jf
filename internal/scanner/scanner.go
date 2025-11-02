@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"jf/internal/config"
+	"jf/internal/feed"
 	"jf/internal/models"
 	"jf/internal/pool"
 	"jf/internal/repo"
@@ -82,178 +83,76 @@ func (m *Scanner) StartScan() error {
 }
 
 func (m *Scanner) run(ctx context.Context) {
+	// Load all three source types
 	companies, err := m.repo.ListCompanies(ctx)
 	if err != nil {
 		m.finishWithErr(err)
 		return
 	}
 
-	// Also fetch scraper-type aggregators to process during scan
 	aggregators, err := m.repo.ListAggregators(ctx)
 	if err != nil {
 		m.finishWithErr(err)
 		return
 	}
 
-	// Filter to only scraper-type aggregators
-	scraperAggregators := make([]models.Aggregator, 0)
+	// Separate aggregators by type
+	var jobBoards []models.Aggregator
+	var rssFeeds []models.Aggregator
 	for _, agg := range aggregators {
-		if strings.ToLower(strings.TrimSpace(agg.Type)) == "scraper" {
-			scraperAggregators = append(scraperAggregators, agg)
+		aggType := strings.ToLower(strings.TrimSpace(agg.Type))
+		if aggType == "scraper" {
+			jobBoards = append(jobBoards, agg)
+		} else if aggType == "rss_feed" {
+			rssFeeds = append(rssFeeds, agg)
 		}
 	}
 
-	// Process companies first
-	total := len(companies) + len(scraperAggregators)
+	// Total sources to process
+	total := len(companies) + len(jobBoards) + len(rssFeeds)
 	m.setTotal(total)
 	if total == 0 {
 		m.finishOK(100, 0)
 		return
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(total)
+	// Create RSS parser for RSS sources
+	feedParser := feed.NewParser(m.http)
 
+	var wg sync.WaitGroup
 	var found int64 // total jobs
-	var done int64  // companies finished
+	var done int64  // sources finished
 
 	// Process companies
 	for _, c := range companies {
 		c := c
-		runOne := func() {
-			defer wg.Done()
-
-			cctx, cancel := context.WithTimeout(ctx, 300*time.Second)
-			defer cancel()
-
-			s := scrape.NewJobScraper(c, m.http, m.bp, m.wp)
-
-			jobs, err := s.GetJobs(cctx, m.cfg)
-			if err != nil && cctx.Err() == nil {
-				m.appendWarn(fmt.Sprintf("%s: %v", c.Name, err))
-			}
-
-			newN := 0
-			for _, sj := range jobs {
-				select {
-				case <-cctx.Done():
-					m.appendWarn(fmt.Sprintf("%s: cancelled: %v", c.Name, cctx.Err()))
-					break
-				default:
-				}
-				// Use object pool for better memory management
-				j := utils.GetJob()
-				j.CompanyID = c.ID
-				j.Title = strings.TrimSpace(sj.Title)
-				j.URL = strings.TrimSpace(sj.URL)
-				j.Location = strings.TrimSpace(sj.Location)
-				j.Description = strings.TrimSpace(sj.Description)
-				j.HREmail = strings.TrimSpace(sj.HREmail)
-				j.HRPhone = strings.TrimSpace(sj.HRPhone)
-
-				if err := m.repo.UpsertJob(cctx, j); err != nil {
-					m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", c.Name, j.URL, err))
-					utils.PutJob(j) // Return to pool on error
-					continue
-				}
-
-				utils.PutJob(j) // Return to pool after successful use
-				newN++
-			}
-
-			totalFound := atomic.AddInt64(&found, int64(newN))
-			curDone := int(atomic.AddInt64(&done, 1))
-			pct := (curDone * 100) / total
-			m.setProgress(pct, int(totalFound))
-			log.Printf("[SCAN] %-22s jobs=%d (%d/%d, %d%%)", c.Name, newN, curDone, total, pct)
-		}
-
-		if m.wp != nil {
-			m.wp.Submit(runOne) // blocks when queue full → backpressure
-		} else {
-			runOne() // sequential fallback
-		}
+		source := scrape.NewJobSource(c, nil, m.http, m.bp, m.wp, feedParser)
+		m.processSource(ctx, &wg, &found, &done, total, source, &c, nil)
 	}
 
-	// Process scraper-type aggregators (convert to Company-like structure)
-	for _, agg := range scraperAggregators {
+	// Process job boards
+	for _, agg := range jobBoards {
 		agg := agg
-		runOne := func() {
-			defer wg.Done()
-
-			cctx, cancel := context.WithTimeout(ctx, 300*time.Second)
-			defer cancel()
-
-			// Ensure aggregator has a corresponding company entry (for foreign key constraint)
-			// Upsert a company with the aggregator's name
-			company := &models.Company{
-				Name:       agg.Name,
-				CareersURL: agg.SourceURL,
-				Active:     agg.Active,
-			}
-			if err := m.repo.UpsertCompanyByName(cctx, company); err != nil {
-				m.appendWarn(fmt.Sprintf("%s: failed to upsert company: %v", agg.Name, err))
-				return
-			}
-
-			// Convert aggregator to Company structure for scraper
-			c := models.Company{
-				ID:         company.ID,
-				Name:       agg.Name,
-				CareersURL: agg.SourceURL,
-				Active:     agg.Active,
-			}
-
-			s := scrape.NewJobScraper(c, m.http, m.bp, m.wp)
-
-			jobs, err := s.GetJobs(cctx, m.cfg)
-			if err != nil && cctx.Err() == nil {
-				m.appendWarn(fmt.Sprintf("%s: %v", agg.Name, err))
-			}
-
-			newN := 0
-			for _, sj := range jobs {
-				select {
-				case <-cctx.Done():
-					m.appendWarn(fmt.Sprintf("%s: cancelled: %v", agg.Name, cctx.Err()))
-					break
-				default:
-				}
-				// Use object pool for better memory management
-				j := utils.GetJob()
-				// For aggregator jobs, use the company ID we created above
-				j.CompanyID = company.ID
-				j.SourceID = agg.ID
-				j.AggregatorName = agg.Name
-				j.Title = strings.TrimSpace(sj.Title)
-				j.URL = strings.TrimSpace(sj.URL)
-				j.Location = strings.TrimSpace(sj.Location)
-				j.Description = strings.TrimSpace(sj.Description)
-				j.HREmail = strings.TrimSpace(sj.HREmail)
-				j.HRPhone = strings.TrimSpace(sj.HRPhone)
-
-				if err := m.repo.UpsertJob(cctx, j); err != nil {
-					m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", agg.Name, j.URL, err))
-					utils.PutJob(j) // Return to pool on error
-					continue
-				}
-
-				utils.PutJob(j) // Return to pool after successful use
-				newN++
-			}
-
-			totalFound := atomic.AddInt64(&found, int64(newN))
-			curDone := int(atomic.AddInt64(&done, 1))
-			pct := (curDone * 100) / total
-			m.setProgress(pct, int(totalFound))
-			log.Printf("[SCAN] %-22s jobs=%d (%d/%d, %d%%)", agg.Name, newN, curDone, total, pct)
+		// Ensure aggregator has a corresponding company entry
+		company := &models.Company{
+			Name:       agg.Name,
+			CareersURL: agg.SourceURL,
+			Active:     agg.Active,
 		}
-
-		if m.wp != nil {
-			m.wp.Submit(runOne) // blocks when queue full → backpressure
-		} else {
-			runOne() // sequential fallback
+		if err := m.repo.UpsertCompanyByName(ctx, company); err != nil {
+			m.appendWarn(fmt.Sprintf("%s: failed to upsert company: %v", agg.Name, err))
+			continue
 		}
+		source := scrape.NewJobSource(*company, &agg, m.http, m.bp, m.wp, feedParser)
+		m.processSource(ctx, &wg, &found, &done, total, source, company, &agg)
+	}
+
+	// Process RSS feeds
+	for _, agg := range rssFeeds {
+		agg := agg
+		c := models.Company{} // Empty for RSS
+		source := scrape.NewJobSource(c, &agg, m.http, m.bp, m.wp, feedParser)
+		m.processSource(ctx, &wg, &found, &done, total, source, nil, &agg)
 	}
 
 	wg.Wait()
@@ -263,6 +162,139 @@ func (m *Scanner) run(ctx context.Context) {
 		m.finishWithErr(ctx.Err())
 	default:
 		m.finishOK(100, int(atomic.LoadInt64(&found)))
+	}
+}
+
+// processSource processes a single source using the unified JobSource interface.
+func (m *Scanner) processSource(
+	ctx context.Context,
+	wg *sync.WaitGroup,
+	found *int64,
+	done *int64,
+	total int,
+	source scrape.JobSource,
+	company *models.Company,
+	aggregator *models.Aggregator,
+) {
+	wg.Add(1)
+	runOne := func() {
+		defer wg.Done()
+
+		cctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+		defer cancel()
+
+		// Step 1: FindJobs - discover job listings
+		listings, err := source.FindJobs(cctx, m.cfg)
+		if err != nil && cctx.Err() == nil {
+			name := ""
+			if company != nil {
+				name = company.Name
+			} else if aggregator != nil {
+				name = aggregator.Name
+			}
+			m.appendWarn(fmt.Sprintf("%s: FindJobs error: %v", name, err))
+		}
+
+		// Step 2: ParseJobMetadata - extract detailed metadata for each listing
+		newN := 0
+		for _, listing := range listings {
+			select {
+			case <-cctx.Done():
+				m.appendWarn(fmt.Sprintf("cancelled: %v", cctx.Err()))
+				return
+			default:
+			}
+
+			// Parse metadata
+			metadata, err := source.ParseJobMetadata(cctx, listing)
+			if err != nil {
+				continue // Skip this job if metadata parsing fails
+			}
+
+			// Determine company ID
+			var companyID string
+			if company != nil {
+				companyID = company.ID
+			} else if aggregator != nil {
+				// For aggregators, we need to get/create company
+				if metadata.Company != "" {
+					// Create/get company for this job
+					c := &models.Company{
+						Name:       metadata.Company,
+						CareersURL: metadata.URL, // Use job URL as fallback
+						Active:     true,
+					}
+					if err := m.repo.UpsertCompanyByName(cctx, c); err == nil {
+						companyID = c.ID
+					}
+				} else {
+					// Use aggregator's company entry
+					c := &models.Company{
+						Name:       aggregator.Name,
+						CareersURL: aggregator.SourceURL,
+						Active:     aggregator.Active,
+					}
+					if err := m.repo.UpsertCompanyByName(cctx, c); err == nil {
+						companyID = c.ID
+					}
+				}
+			}
+
+			if companyID == "" {
+				continue // Skip if we can't get a company ID
+			}
+
+			// Step 3: Store in DB
+			j := utils.GetJob()
+			j.CompanyID = companyID
+			j.Title = strings.TrimSpace(metadata.Title)
+			j.URL = strings.TrimSpace(metadata.URL)
+			j.Location = strings.TrimSpace(metadata.Location)
+			j.Description = strings.TrimSpace(metadata.Description)
+			j.HREmail = strings.TrimSpace(metadata.HREmail)
+			j.HRPhone = strings.TrimSpace(metadata.HRPhone)
+			j.ApplyURL = strings.TrimSpace(metadata.ApplyURL)
+			j.ApplyViaPortal = metadata.ApplyViaPortal
+
+			if aggregator != nil {
+				j.SourceID = aggregator.ID
+				j.AggregatorName = aggregator.Name
+			}
+
+			if err := m.repo.UpsertJob(cctx, j); err != nil {
+				name := ""
+				if company != nil {
+					name = company.Name
+				} else if aggregator != nil {
+					name = aggregator.Name
+				}
+				m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", name, j.URL, err))
+				utils.PutJob(j)
+				continue
+			}
+
+			utils.PutJob(j)
+			newN++
+		}
+
+		totalFound := atomic.AddInt64(found, int64(newN))
+		curDone := int(atomic.AddInt64(done, 1))
+		pct := (curDone * 100) / total
+		m.setProgress(pct, int(totalFound))
+
+		name := ""
+		if company != nil {
+			name = company.Name
+		} else if aggregator != nil {
+			name = aggregator.Name
+		}
+		log.Printf("[SCAN] %-22s jobs=%d (%d/%d, %d%%)", name, newN, curDone, total, pct)
+	}
+
+	if m.wp != nil {
+		m.wp.Submit(runOne)
+	} else {
+		runOne()
 	}
 }
 
