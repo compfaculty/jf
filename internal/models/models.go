@@ -13,18 +13,22 @@ type Company struct {
 }
 
 type Job struct {
-	ID           string     `json:"id"`
-	CompanyID    string     `json:"company_id"`
-	CompanyName  string     `json:"company_name,omitempty"`
-	Title        string     `json:"title"`
-	URL          string     `json:"url"`
-	Location     string     `json:"location"`
-	Description  string     `json:"description"`
-	HREmail      string     `json:"hr_email,omitempty"`
-	HRPhone      string     `json:"hr_phone,omitempty"`
-	DiscoveredAt time.Time  `json:"discovered_at"`
-	Applied      bool       `json:"applied"`
-	AppliedAt    *time.Time `json:"applied_at,omitempty"`
+	ID             string     `json:"id"`
+	CompanyID      string     `json:"company_id"`
+	CompanyName    string     `json:"company_name,omitempty"`
+	SourceID       string     `json:"source_id,omitempty"`       // ID of aggregator that found this job
+	AggregatorName string     `json:"aggregator_name,omitempty"` // Name of aggregator (for display)
+	Title          string     `json:"title"`
+	URL            string     `json:"url"`
+	ApplyURL       string     `json:"apply_url,omitempty"`        // HR portal URL for redirect
+	ApplyViaPortal bool       `json:"apply_via_portal,omitempty"` // Flag for portal jobs
+	Location       string     `json:"location"`
+	Description    string     `json:"description"`
+	HREmail        string     `json:"hr_email,omitempty"`
+	HRPhone        string     `json:"hr_phone,omitempty"`
+	DiscoveredAt   time.Time  `json:"discovered_at"`
+	Applied        bool       `json:"applied"`
+	AppliedAt      *time.Time `json:"applied_at,omitempty"`
 }
 
 // JobQuery Filters for GET /api/jobs
@@ -49,6 +53,16 @@ type AppliedResult struct {
 	Status  int    `json:"status"`
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
+}
+
+type Aggregator struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	SourceURL string    `json:"source_url"`
+	Type      string    `json:"type"` // 'scraper' or 'rss_feed'
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type ScrapedJob struct {

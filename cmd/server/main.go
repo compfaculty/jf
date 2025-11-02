@@ -41,7 +41,10 @@ func main() {
 
 	// Optional one-time seed
 	if err := repo.SeedCompanies(r); err != nil {
-		log.Printf("seed: %v", err)
+		log.Printf("seed companies: %v", err)
+	}
+	if err := repo.SeedAggregators(r); err != nil {
+		log.Printf("seed aggregators: %v", err)
 	}
 
 	httpDoer := httpx.New(cfg.HTTPX())
@@ -55,16 +58,13 @@ func main() {
 	// --- Scanner manager
 	sm := scanner.NewScanner(r, cfg, httpDoer, bp, wp)
 
-	// --- RSS Feed monitor
-	var feedMonitor *feed.Monitor
-	if cfg.RSSFeeds.Enabled {
-		feedParser := feed.NewParser(httpDoer)
-		feedMonitor = feed.NewMonitor(r, feedParser, cfg)
-		if err := feedMonitor.Start(); err != nil {
-			log.Printf("[FEED] Failed to start monitor: %v", err)
-		} else {
-			defer feedMonitor.Stop()
-		}
+	// --- RSS Feed monitor (reads aggregators from database)
+	feedParser := feed.NewParser(httpDoer)
+	feedMonitor := feed.NewMonitor(r, feedParser, cfg)
+	if err := feedMonitor.Start(); err != nil {
+		log.Printf("[FEED] Failed to start monitor: %v", err)
+	} else {
+		defer feedMonitor.Stop()
 	}
 
 	// --- HTTP server ---

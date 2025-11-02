@@ -665,6 +665,10 @@
     }
 
     // ------- Paging & Search -------
+    // Deep-link search from URL - declare urlParams before event listeners
+    const urlParams = new URLSearchParams(location.search);
+    if (urlParams.has('q')) q.value = urlParams.get('q');
+
     limitSel.addEventListener('change', () => {
         limit = Number(limitSel.value) || 25;
         localStorage.setItem('jf.limit', String(limit));
@@ -679,6 +683,7 @@
     latestBtn.addEventListener('click', () => {
         q.value = '';
         urlParams.delete('q');
+        syncQueryToURL(); // Update browser URL to reflect cleared search
         offset = 0;
         loadJobs();
         toast('Showing latest', 'Cleared search and loaded newest jobs.');
@@ -693,10 +698,6 @@
             loadJobs();
         }
     });
-
-    // Deep-link search from URL
-    const urlParams = new URLSearchParams(location.search);
-    if (urlParams.has('q')) q.value = urlParams.get('q');
 
     const debounce = (fn, ms = 250) => {
         let t;

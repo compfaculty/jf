@@ -52,18 +52,6 @@ type WorkerPoolCfg struct {
 	Queue   int `yaml:"queue"`
 }
 
-type RSSFeedSource struct {
-	URL     string `yaml:"url"`
-	Name    string `yaml:"name"`
-	Enabled bool   `yaml:"enabled"`
-}
-
-type RSSFeedsCfg struct {
-	Enabled     bool           `yaml:"enabled"`
-	PollInterval string        `yaml:"poll_interval"` // e.g., "5m", "1h"
-	Feeds       []RSSFeedSource `yaml:"feeds"`
-}
-
 type Config struct {
 	// runtime
 	Server      ServerCfg      `yaml:"server"`
@@ -75,8 +63,6 @@ type Config struct {
 	ApplyForm ApplyForm `yaml:"apply_form"`
 
 	Mail MailConfig `yaml:"mail"`
-
-	RSSFeeds RSSFeedsCfg `yaml:"rss_feeds"`
 
 	CVRoles []string `yaml:"cv_roles"`
 
@@ -154,14 +140,10 @@ func (p *Config) WorkerPoolConfig() (workers, queue int) {
 	return nz(p.WorkerPool.Workers, 16), nz(p.WorkerPool.Queue, 1024)
 }
 
+// RSSPollIntervalDuration returns the default RSS poll interval.
+// RSS feeds are now configured in embeddedAggregators (hardcoded), not in config.
 func (p *Config) RSSPollIntervalDuration() time.Duration {
-	d := strings.TrimSpace(p.RSSFeeds.PollInterval)
-	if d == "" {
-		return 5 * time.Minute
-	}
-	if v, err := time.ParseDuration(d); err == nil {
-		return v
-	}
+	// Default poll interval - can be made configurable if needed
 	return 5 * time.Minute
 }
 

@@ -1,6 +1,7 @@
 package repo
 
-// embeddedCompaniesJSON is compiled into the binary and not served anywhere.
+// embeddedCompanies contains pure company career pages (not job boards/aggregators).
+// These are direct company sites where we scrape jobs directly.
 var embeddedCompanies = []struct {
 	Name  string
 	URL   string
@@ -35,8 +36,6 @@ var embeddedCompanies = []struct {
 	//{"ParaZero", "https://parazero.com/careers/"},
 	//{"Pentera", "https://pentera.io/careers/"},
 	//{"Perion", "https://perion.com/careers/"},
-	{"Secret TLV", "https://jobs.secrettelaviv.com/", ""},
-	{"Telfed Job Board", "https://www.telfed.org.il/job-board/", ""},
 	//{"Seemplicity", "https://seemplicity.io/about/careers/"},
 	//{"Ceragon Networks", "https://www.ceragon.com/about-ceragon/careers"},
 	//{"Varonis", "https://careers.varonis.com/"},
@@ -53,12 +52,27 @@ var embeddedCompanies = []struct {
 	//{"Komodor", "https://komodor.com/careers/#open-positions-title"},
 	//{"LayerX Security", "https://layerxsecurity.com/careers"},
 	//{"Mobilicom", "https://mobilicom.com/careers/"},
+}
 
-	// Newly supported boards/scrapers
-	// {"Greenhouse (demo)", "https://boards.greenhouse.io/example", ""},
-	// {"Lever (demo)", "https://jobs.lever.co/example", ""},
-	// {"Ashby (demo)", "https://jobs.ashbyhq.com/example", ""},
-	// {"SmartRecruiters (demo)", "https://jobs.smartrecruiters.com/SmartRecruiters", ""},
-	// {"Recruitee (demo)", "https://elastic.recruitee.com", ""},
-	// {"Workable (demo)", "https://apply.workable.com/example", ""},
+// embeddedAggregators contains job boards/aggregators.
+// These aggregate jobs from multiple companies.
+// For each aggregator:
+// - Name: display name
+// - SourceURL: URL to scrape (for scraping) or RSS feed URL (for RSS feeds)
+// - Type: "scraper" or "rss_feed"
+// - RSSFeedURL: optional RSS feed URL (empty string if using scraper, or same as SourceURL for RSS feeds)
+var embeddedAggregators = []struct {
+	Name       string
+	SourceURL  string
+	Type       string // "scraper" or "rss_feed"
+	RSSFeedURL string // Optional RSS feed URL
+}{
+	// Scrapers (site scraping)
+	{"Secret TLV", "https://jobs.secrettelaviv.com/", "scraper", ""},
+	{"Telfed Job Board", "https://www.telfed.org.il/job-board/", "scraper", ""},
+
+	// RSS Feed aggregators
+	{"DOU Jobs", "https://jobs.dou.ua/vacancies/feeds/", "rss_feed", "https://jobs.dou.ua/vacancies/feeds/"},
+	{"Jobicy", "https://jobicy.com/feed/job_feed", "rss_feed", "https://jobicy.com/feed/job_feed"},
+	{"Real Work From Anywhere", "https://www.realworkfromanywhere.com/rss.xml", "rss_feed", "https://www.realworkfromanywhere.com/rss.xml"},
 }
