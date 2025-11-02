@@ -99,3 +99,18 @@ mail:
     - name: data
       patterns: [ "data", "ml", "ai", "nlp", "analytics", "scientist", "engineer (data)" ]
       cv_path: /home/alex/cv/cv_data.pdf
+
+# RSS feed sources for job discovery
+rss_feeds:
+  enabled: true
+  poll_interval: "5m"  # How often to poll feeds (e.g., "5m", "1h")
+  feeds:
+    - url: "https://jobs.dou.ua/vacancies/feeds/"
+      name: "DOU Jobs"
+      enabled: true
+    - url: "https://jobicy.com/feed/job_feed"
+      name: "Jobicy"
+      enabled: true
+    - url: "https://www.realworkfromanywhere.com/rss.xml"
+      name: "Real Work From Anywhere"
+      enabled: true

@@ -35,7 +35,7 @@ var embeddedCompanies = []struct {
 	//{"ParaZero", "https://parazero.com/careers/"},
 	//{"Pentera", "https://pentera.io/careers/"},
 	//{"Perion", "https://perion.com/careers/"},
-	// {"Secret TLV", "https://jobs.secrettelaviv.com/", ""},
+	{"Secret TLV", "https://jobs.secrettelaviv.com/", ""},
 	{"Telfed Job Board", "https://www.telfed.org.il/job-board/", ""},
 	//{"Seemplicity", "https://seemplicity.io/about/careers/"},
 	//{"Ceragon Networks", "https://www.ceragon.com/about-ceragon/careers"},

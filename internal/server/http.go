@@ -18,6 +18,7 @@ import (
 
 	"jf/internal/config"
 	"jf/internal/emailx"
+	"jf/internal/feed"
 	"jf/internal/models"
 	"jf/internal/repo"
 	"jf/internal/scanner"
@@ -28,7 +29,7 @@ import (
 //go:embed gui.html
 var content embed.FS
 
-func NewRouter(r repo.Repo, sm *scanner.Scanner, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
+func NewRouter(r repo.Repo, sm *scanner.Scanner, fm *feed.Monitor, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -64,6 +65,24 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, cfg *config.Config, wp *pond.Wo
 		metrics := utils.GetMetricsSnapshot()
 		writeJSON(w, http.StatusOK, metrics)
 	})
+
+	// RSS Feed endpoints
+	if fm != nil {
+		mux.Get("/api/feed/status", func(w http.ResponseWriter, _ *http.Request) {
+			status := fm.GetStatus()
+			writeJSON(w, http.StatusOK, status)
+		})
+		mux.Get("/api/feed/updates", func(w http.ResponseWriter, req *http.Request) {
+			limit := atoi(req.URL.Query().Get("limit"))
+			if limit <= 0 || limit > 100 {
+				limit = 20
+			}
+			updates := fm.GetUpdates(limit)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"updates": updates,
+			})
+		})
+	}
 
 	// Jobs (paginated)
 	mux.Get("/api/jobs", func(w http.ResponseWriter, req *http.Request) {

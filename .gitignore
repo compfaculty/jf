@@ -29,3 +29,5 @@ Thumbs.db
 
 # Dependency management
 vendor/   # if you vendor deps (optional, many projects commit it)
+data/*
+data/jobs.db
