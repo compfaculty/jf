@@ -1,4 +1,4 @@
-package scrape
+package companysite
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/scrape/common"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -17,13 +18,13 @@ import (
 // Each job appears in a tab pane with class .job_pos_div_f.
 type Agrematch struct {
 	company models.Company
-	client  Doer
+	client  common.Doer
 }
 
-func NewAgrematch(c models.Company, client Doer) *Agrematch {
+func NewAgrematch(c models.Company, client common.Doer) *Agrematch {
 	return &Agrematch{
 		company: c,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 	}
 }
 
@@ -42,7 +43,7 @@ func (s *Agrematch) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 
 	// Every job block on the page (hidden or active panes are still in DOM on Webflow pages)
 	doc.Find("div.job_pos_div_f").Each(func(_ int, blk *goquery.Selection) {
-		title := normWS(blk.Find("h2.open_pos_title.sub_pos").First().Text())
+		title := common.NormWS(blk.Find("h2.open_pos_title.sub_pos").First().Text())
 		if title == "" {
 			return
 		}
@@ -57,7 +58,7 @@ func (s *Agrematch) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 		baseURL, _ := url.Parse(start)
 		jobURL := start
 		if baseURL != nil {
-			sl := slug(title)
+			sl := common.Slug(title)
 			u := *baseURL
 			q := u.Query()
 			q.Set("_jf", sl) // synthetic, unique per job; NOT removed by canonicalizeURL
@@ -107,13 +108,13 @@ func extractMergedBulletsAgrematch(jobBlk *goquery.Selection) string {
 	var respItems, reqItems []string
 
 	jobBlk.Find("div.pos_points").Each(func(_ int, pp *goquery.Selection) {
-		heading := strings.ToLower(normWS(pp.Find("h3.career-h3").First().Text()))
+		heading := strings.ToLower(common.NormWS(pp.Find("h3.career-h3").First().Text()))
 		if heading == "" {
 			return
 		}
 		var items []string
 		pp.Find("div.career-point-wrap > div").Each(func(_ int, d *goquery.Selection) {
-			t := normWS(d.Text()) // collapses <br/> into spaces
+			t := common.NormWS(d.Text()) // collapses <br/> into spaces
 			if t != "" {
 				items = append(items, t)
 			}
@@ -137,4 +138,10 @@ func extractMergedBulletsAgrematch(jobBlk *goquery.Selection) string {
 	default:
 		return "" // no bullets found
 	}
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Stub implementation - returns empty string until instructed where/how to find the date.
+func (s *Agrematch) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	return "", nil
 }

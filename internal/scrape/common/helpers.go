@@ -1,4 +1,4 @@
-package scrape
+package common
 
 import (
 	"net/url"
@@ -75,7 +75,7 @@ func DedupeScraped(in []models.ScrapedJob) []models.ScrapedJob {
 
 // BadHref returns true for empty/anchor/scheme-junk and for common
 // non-navigational assets (docs, images, media, archives).
-var badHrefExtRe = regexp.MustCompile(`(?i)\.(pdf|docx?|xlsx?|csv|zip|rar|7z|png|jpe?g|gif|svg|webp|mp4|mp3|avi|mov|wmv)(?:[?#].*)?$`)
+var BadHrefExtRe = regexp.MustCompile(`(?i)\.(pdf|docx?|xlsx?|csv|zip|rar|7z|png|jpe?g|gif|svg|webp|mp4|mp3|avi|mov|wmv)(?:[?#].*)?$`)
 
 func BadHref(href string) bool {
 	h := strings.TrimSpace(href)
@@ -95,5 +95,5 @@ func BadHref(href string) bool {
 	}
 
 	// common file extensions we don't want to follow
-	return badHrefExtRe.MatchString(hl)
+	return BadHrefExtRe.MatchString(hl)
 }

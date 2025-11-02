@@ -3,6 +3,7 @@ package scrape
 import (
 	"context"
 	"fmt"
+	"jf/internal/scrape/common"
 	"net/url"
 	"strings"
 	"time"
@@ -16,17 +17,17 @@ import (
 // Handles boards like Secret Tel Aviv (direct apply) and Telfed (external links).
 type BoardSource struct {
 	aggregator models.Aggregator
-	scraper    JobScraper // Existing board scraper (SecretTelAviv, TelfedScraper, etc.)
-	browser    Browser    // Optional, for extracting company info from external links
-	client     Doer
+	scraper    common.JobScraper // Existing board scraper (SecretTelAviv, TelfedScraper, etc.)
+	browser    common.Browser    // Optional, for extracting company info from external links
+	client     common.Doer
 }
 
 // NewBoardSource creates a new board source from an existing scraper.
-func NewBoardSource(agg models.Aggregator, scraper JobScraper, client Doer, browser Browser) *BoardSource {
+func NewBoardSource(agg models.Aggregator, scraper common.JobScraper, client common.Doer, browser common.Browser) *BoardSource {
 	return &BoardSource{
 		aggregator: agg,
 		scraper:    scraper,
-		client:     ensureClient(client),
+		client:     common.EnsureClient(client),
 		browser:    browser,
 	}
 }

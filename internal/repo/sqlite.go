@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS jobs(
   hr_email       TEXT NOT NULL DEFAULT '',
   hr_phone       TEXT NOT NULL DEFAULT '',
   discovered_at  TIMESTAMP NOT NULL,
+  posted_at      TEXT,
   applied        INTEGER NOT NULL DEFAULT 0,
   applied_at     TIMESTAMP
 );
@@ -412,8 +413,8 @@ func (r *SQLiteRepo) UpsertJob(ctx context.Context, j *models.Job) error {
 
 	//goland:noinspection SqlResolve
 	q := `
-INSERT INTO jobs(id,company_id,source_id,title,url,apply_url,apply_via_portal,canonical_url,location,description,hr_email,hr_phone,discovered_at,applied,applied_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO jobs(id,company_id,source_id,title,url,apply_url,apply_via_portal,canonical_url,location,description,hr_email,hr_phone,discovered_at,posted_at,applied,applied_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(company_id, canonical_url) DO UPDATE SET
   title=excluded.title,
   url=excluded.url,
@@ -423,11 +424,12 @@ ON CONFLICT(company_id, canonical_url) DO UPDATE SET
   location=excluded.location,
   description=excluded.description,
   hr_email=excluded.hr_email,
-  hr_phone=excluded.hr_phone
+  hr_phone=excluded.hr_phone,
+  posted_at=excluded.posted_at
 `
 	start := time.Now()
 	res, err := r.exec(ctx, q,
-		j.ID, j.CompanyID, j.SourceID, j.Title, j.URL, j.ApplyURL, boolToInt(j.ApplyViaPortal), canon, j.Location, j.Description, j.HREmail, j.HRPhone, j.DiscoveredAt, boolToInt(j.Applied), j.AppliedAt)
+		j.ID, j.CompanyID, j.SourceID, j.Title, j.URL, j.ApplyURL, boolToInt(j.ApplyViaPortal), canon, j.Location, j.Description, j.HREmail, j.HRPhone, j.DiscoveredAt, j.PostedAt, boolToInt(j.Applied), j.AppliedAt)
 	dur := time.Since(start)
 	if err != nil {
 		r.infof("UpsertJob err url=%q canon=%q company_id=%s dur=%s err=%v", j.URL, canon, j.CompanyID, dur, err)
@@ -532,6 +534,7 @@ SELECT j.id,
        j.hr_email,
        j.hr_phone,
        j.discovered_at,
+       j.posted_at,
        j.applied,
        j.applied_at
 FROM jobs j
@@ -554,11 +557,12 @@ LIMIT ? OFFSET ?`, whereSQL)
 		var appliedInt int
 		var applyViaPortalInt int
 		var appliedAt sql.NullTime
+		var postedAt sql.NullString
 		var aggregatorName sql.NullString
 		if err = rows.Scan(
 			&j.ID, &j.CompanyID, &j.CompanyName, &j.SourceID, &aggregatorName, &j.Title, &j.URL, &j.ApplyURL, &applyViaPortalInt,
 			&j.Location, &j.Description, &j.HREmail, &j.HRPhone,
-			&j.DiscoveredAt, &appliedInt, &appliedAt,
+			&j.DiscoveredAt, &postedAt, &appliedInt, &appliedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -566,6 +570,9 @@ LIMIT ? OFFSET ?`, whereSQL)
 		j.ApplyViaPortal = applyViaPortalInt == 1
 		if aggregatorName.Valid {
 			j.AggregatorName = aggregatorName.String
+		}
+		if postedAt.Valid {
+			j.PostedAt = postedAt.String
 		}
 		if appliedAt.Valid {
 			t := appliedAt.Time

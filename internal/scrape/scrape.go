@@ -3,6 +3,7 @@ package scrape
 import (
 	"context"
 	"fmt"
+	"jf/internal/scrape/common"
 	"net/http"
 	"net/url"
 	"path"
@@ -99,7 +100,7 @@ func (g *generic) GetJobs(ctx context.Context, _ any) ([]LegacyScrapedJob, error
 	var out []LegacyScrapedJob
 
 	doc.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
-		text := strings.TrimSpace(joinWS(a.Text()))
+		text := strings.TrimSpace(common.JoinWS(a.Text()))
 		if text == "" {
 			return
 		}
@@ -167,7 +168,7 @@ func (s *secretTLV) GetJobs(ctx context.Context, _ any) ([]LegacyScrapedJob, err
 			if titleA.Length() == 0 {
 				return
 			}
-			title := strings.TrimSpace(joinWS(titleA.Text()))
+			title := strings.TrimSpace(common.JoinWS(titleA.Text()))
 			href, _ := titleA.Attr("href")
 			if title == "" || href == "" {
 				return
@@ -184,7 +185,7 @@ func (s *secretTLV) GetJobs(ctx context.Context, _ any) ([]LegacyScrapedJob, err
 			break
 		}
 		if href, ok := np.Attr("href"); ok && strings.TrimSpace(href) != "" {
-			next = resolveURLMust(next, href)
+			next = common.ResolveURLMust(next, href)
 		} else {
 			break
 		}

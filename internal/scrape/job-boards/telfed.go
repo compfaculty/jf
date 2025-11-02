@@ -6,6 +6,7 @@ import (
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/pool"
+	"jf/internal/scrape/common"
 	"log"
 	"net/url"
 	"strings"
@@ -20,11 +21,11 @@ import (
 // It uses BrowserPool to bypass Cloudflare protection and extract job links.
 type TelfedScraper struct {
 	company models.Company
-	browser Browser // required - Telfed uses Cloudflare protection
+	browser common.Browser // required - Telfed uses Cloudflare protection
 	wp      *pond.WorkerPool
 }
 
-func NewTelfed(c models.Company, browser Browser, wp *pond.WorkerPool) *TelfedScraper {
+func NewTelfed(c models.Company, browser common.Browser, wp *pond.WorkerPool) *TelfedScraper {
 	if browser == nil {
 		panic("TelfedScraper requires BrowserPool (site has Cloudflare protection)")
 	}
@@ -77,7 +78,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			if err != nil {
 				// Best effort: return what we have so far
 				if len(all) > 0 {
-					return dedupeScraped(all), nil
+					return common.DedupeScraped(all), nil
 				}
 				return nil, err
 			}
@@ -109,7 +110,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		select {
 		case <-time.After(500 * time.Millisecond):
 		case <-ctx.Done():
-			return dedupeScraped(all), ctx.Err()
+			return common.DedupeScraped(all), ctx.Err()
 		}
 	}
 
@@ -177,7 +178,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 	// Extract title from h1.elementor-heading-title
 	titleSel := doc.Find("h1.elementor-heading-title").First()
 	if titleSel.Length() > 0 {
-		title = strings.TrimSpace(joinWS(titleSel.Text()))
+		title = strings.TrimSpace(common.JoinWS(titleSel.Text()))
 	}
 
 	// Extract description from elementor-widget-theme-post-content
@@ -186,7 +187,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 		// Get all text content, preserving paragraph structure
 		parts := make([]string, 0)
 		contentSel.Find("p").Each(func(_ int, p *goquery.Selection) {
-			text := strings.TrimSpace(joinWS(p.Text()))
+			text := strings.TrimSpace(common.JoinWS(p.Text()))
 			if text != "" {
 				parts = append(parts, text)
 				// Check each paragraph for email and phone patterns - be aggressive, check all paragraphs
@@ -206,7 +207,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 		})
 		// If no paragraphs, get all text
 		if len(parts) == 0 {
-			description = strings.TrimSpace(joinWS(contentSel.Text()))
+			description = strings.TrimSpace(common.JoinWS(contentSel.Text()))
 		} else {
 			description = strings.Join(parts, "\n\n")
 		}
@@ -713,7 +714,7 @@ func (t *TelfedScraper) extractJobsFromAnchors(
 			}
 
 			// pagination detection
-			lowerTitle := strings.ToLower(strings.TrimSpace(joinWS(a.Text)))
+			lowerTitle := strings.ToLower(strings.TrimSpace(common.JoinWS(a.Text)))
 			lowerHref := strings.ToLower(href)
 			if strings.Contains(lowerTitle, "next") || strings.Contains(lowerTitle, "הבא") || strings.Contains(lowerHref, "page=") || strings.Contains(lowerHref, "/page/") {
 				mu.Lock()
@@ -729,7 +730,7 @@ func (t *TelfedScraper) extractJobsFromAnchors(
 				return nil
 			}
 
-			title := strings.TrimSpace(joinWS(a.Text))
+			title := strings.TrimSpace(common.JoinWS(a.Text))
 			if title == "" {
 				title = t.fallbackTitle(u)
 			}
@@ -769,7 +770,7 @@ func (t *TelfedScraper) findNextPageFromAnchors(anchors []pool.Anchor, currentUR
 			continue
 		}
 
-		text := strings.ToLower(strings.TrimSpace(joinWS(a.Text)))
+		text := strings.ToLower(strings.TrimSpace(common.JoinWS(a.Text)))
 		hrefLower := strings.ToLower(href)
 
 		// Check for "next" indicators
@@ -851,11 +852,11 @@ func (t *TelfedScraper) extractFromHTML(html string, current string, baseURL *ur
 			continue
 		}
 
-		title := strings.TrimSpace(joinWS(a.Text()))
+		title := strings.TrimSpace(common.JoinWS(a.Text()))
 		if title == "" {
 			parent := a.ParentsFiltered(".uael-post__content-wrap").First()
 			if parent.Length() > 0 {
-				if t2 := strings.TrimSpace(joinWS(parent.Find("h3.uael-post__title a").First().Text())); t2 != "" {
+				if t2 := strings.TrimSpace(common.JoinWS(parent.Find("h3.uael-post__title a").First().Text())); t2 != "" {
 					title = t2
 				}
 			}
@@ -876,7 +877,7 @@ func (t *TelfedScraper) extractFromHTML(html string, current string, baseURL *ur
 	var next string
 	if a := doc.Find("a[rel=next], a.next, a.pagination-next").First(); a.Length() > 0 {
 		if href, ok := a.Attr("href"); ok && strings.TrimSpace(href) != "" {
-			next = resolveURLMust(current, href)
+			next = common.ResolveURLMust(current, href)
 		}
 	}
 	if next == "" {
@@ -888,11 +889,17 @@ func (t *TelfedScraper) extractFromHTML(html string, current string, baseURL *ur
 			if href, ok := a.Attr("href"); ok {
 				hl := strings.ToLower(strings.TrimSpace(href))
 				if strings.Contains(hl, "/page/") || strings.Contains(hl, "page=") {
-					next = resolveURLMust(current, href)
+					next = common.ResolveURLMust(current, href)
 				}
 			}
 		})
 	}
 
 	return out, next
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Stub implementation - returns empty string until instructed where/how to find the date.
+func (t *TelfedScraper) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	return "", nil
 }

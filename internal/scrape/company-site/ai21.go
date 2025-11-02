@@ -1,4 +1,4 @@
-package scrape
+package companysite
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/scrape/common"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/sync/errgroup"
@@ -23,13 +24,13 @@ var (
 // Ai21Scraper scrapes https://www.ai21.com/careers/
 type Ai21Scraper struct {
 	company models.Company
-	client  Doer
+	client  common.Doer
 }
 
-func NewAi21(c models.Company, client Doer) *Ai21Scraper {
+func NewAi21(c models.Company, client common.Doer) *Ai21Scraper {
 	return &Ai21Scraper{
 		company: c,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 	}
 }
 
@@ -202,4 +203,10 @@ func emptyIfDash(s string) string {
 		return ""
 	}
 	return s
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Stub implementation - returns empty string until instructed where/how to find the date.
+func (s *Ai21Scraper) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	return "", nil
 }

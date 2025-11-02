@@ -120,7 +120,7 @@
 
         .row {
             display: grid;
-            grid-template-columns: 28px 2fr 1.6fr 1fr 2fr 140px; /* ☑ | title | company/location | age | short url | status */
+            grid-template-columns: 28px 2.5fr 1.5fr 1.2fr 140px; /* ☑ | title | source | date_posted | status */
             gap: 10px;
             align-items: center;
             padding: 8px 0;
@@ -372,20 +372,16 @@
                 grid-column: 2 / -1;
             }
 
-            .row .co-loc {
+            .row .source {
                 grid-column: 2 / -1;
             }
 
-            .row .age {
+            .row .date-posted {
                 grid-column: 2 / 3;
             }
 
-            .row .surl {
-                grid-column: 3 / -1;
-            }
-
             .row .status {
-                grid-column: 2 / -1;
+                grid-column: 3 / -1;
                 text-align: left;
             }
 
@@ -669,8 +665,7 @@
         <div><div class="skeleton" style="width:18px; height:18px; border-radius:6px;"></div></div>
         <div class="cell"><div class="skeleton" style="width:70%;"></div></div>
         <div class="cell"><div class="skeleton" style="width:60%;"></div></div>
-        <div class="cell"><div class="skeleton" style="width:40%; margin-left:auto;"></div></div>
-        <div class="cell"><div class="skeleton" style="width:80%;"></div></div>
+        <div class="cell"><div class="skeleton" style="width:50%;"></div></div>
         <div class="cell right"><div class="skeleton" style="width:90px; height:22px; margin-left:auto; border-radius:999px;"></div></div>`;
             list.appendChild(row);
         }
@@ -688,15 +683,30 @@
         for (const j of jobs) {
             const applied = !!j.applied;
             const statusIcon = applied ? '✅' : '🆕';
-            const company = j.company_name || '';
-            const loc = j.location || '';
             const url = j.url || '';
-            const short = shortUrl(url, 36);
-            const discovered = j.discovered_at ? new Date(j.discovered_at) : null;
-            const when = discovered ? `${ago(discovered)} ago` : '';
             const descHTML = formatDesc(j.description || '');
-            // Debug: log hr_email to console to verify it's in the data
-            if (j.hr_email) console.log(`[DEBUG] Job ${j.title} has hr_email:`, j.hr_email);
+            
+            // Determine source: aggregator_name (job board/RSS) takes priority, otherwise company_name
+            let source = '';
+            if (j.aggregator_name) {
+                source = j.aggregator_name;
+            } else if (j.company_name) {
+                source = j.company_name;
+            }
+            
+            // Format PostedAt if available
+            let datePosted = '';
+            if (j.posted_at) {
+                try {
+                    const postedDate = new Date(j.posted_at);
+                    if (!isNaN(postedDate.getTime())) {
+                        datePosted = postedDate.toLocaleDateString();
+                    }
+                } catch (e) {
+                    // If posted_at is a string, try to use it as-is
+                    datePosted = j.posted_at;
+                }
+            }
 
             const row = document.createElement('div');
             row.className = 'row';
@@ -708,16 +718,11 @@
         <div class="cell title ellipsis">
           <h4>${statusIcon} <a href="${url}" target="_blank" rel="noopener" class="job-link">${escapeHtml(j.title || '(no title)')}</a></h4>
         </div>
-        <div class="cell co-loc meta-sm">
-          🏢 ${escapeHtml(company)} ${loc ? ` • 📍 ${escapeHtml(loc)}` : ''}
-          ${j.hr_email ? `<br/><span style="color: var(--brand);">✉ <a href="mailto:${escapeHtml(j.hr_email)}" style="color: inherit; text-decoration: underline;">${escapeHtml(j.hr_email)}</a></span>` : ''}
-          ${j.hr_phone ? `<br/><span style="color: var(--brand);">📞 <a href="tel:${escapeHtml(j.hr_phone)}" style="color: inherit; text-decoration: underline;">${escapeHtml(j.hr_phone)}</a></span>` : ''}
+        <div class="cell source meta-sm">
+          ${source ? `📌 ${escapeHtml(source)}` : ''}
         </div>
-        <div class="cell age meta-sm right" title="${discovered ? discovered.toLocaleString() : ''}">
-          🕒 ${when || ''}
-        </div>
-        <div class="cell surl ellipsis meta-sm">
-          🔗 <a href="${url}" target="_blank" rel="noopener" class="ellipsis">${escapeHtml(short)}</a>
+        <div class="cell date-posted meta-sm">
+          ${datePosted ? `📅 ${escapeHtml(datePosted)}` : ''}
         </div>
         <div class="cell status right">
           ${applied ? `<span class="pill applied">Applied</span>` : `<span class="pill new">Not applied</span>`}
@@ -725,7 +730,7 @@
 
             // preview hover
             const link = row.querySelector('.job-link');
-            attachPreview(link, {title: j.title || '(no title)', company, location: loc, hrEmail: j.hr_email || '', hrPhone: j.hr_phone || '', descHTML});
+            attachPreview(link, {title: j.title || '(no title)', company: source, location: j.location || '', hrEmail: j.hr_email || '', hrPhone: j.hr_phone || '', descHTML});
 
             // checkbox selection listeners
             const cb = row.querySelector('input[type="checkbox"]');

@@ -1,4 +1,4 @@
-package scrape
+package companysite
 
 import (
 	"context"
@@ -19,21 +19,23 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/alitto/pond"
+
+	"jf/internal/scrape/common"
 )
 
 // GenericScraper scans static anchors; if no results and a Browser is provided,
 // it retries with HTML from a headless page (selector-driven wait).
 type GenericScraper struct {
 	company models.Company
-	client  Doer
-	browser Browser          // optional
+	client  common.Doer
+	browser common.Browser   // optional
 	wp      *pond.WorkerPool // shared pool (recommended)
 }
 
-func NewGeneric(c models.Company, client Doer, browser Browser, wp *pond.WorkerPool) *GenericScraper {
+func NewGeneric(c models.Company, client common.Doer, browser common.Browser, wp *pond.WorkerPool) common.JobScraper {
 	return &GenericScraper{
 		company: c,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 		browser: browser,
 		wp:      wp,
 	}
@@ -112,7 +114,7 @@ func (g *GenericScraper) extractFromAnchorsParallel(
 			}
 
 			// Title: prefer text, fallback to last path segment
-			title := g.pickTitle(strings.TrimSpace(joinWS(txt)), u)
+			title := g.pickTitle(strings.TrimSpace(common.JoinWS(txt)), u)
 
 			combined := title + " " + u.String()
 			ok, absCanon := validators.MustJobLinkURL(combined, href, base, good, bad, thr, hardExcl)
@@ -227,7 +229,7 @@ func (g *GenericScraper) extractFromHTML(root string, r io.ReadCloser, cfg *conf
 		}
 		seen[href] = struct{}{}
 
-		text := strings.TrimSpace(joinWS(a.Text()))
+		text := strings.TrimSpace(common.JoinWS(a.Text()))
 
 		// IMPORTANT: produce a canonical ABSOLUTE URL (fixes localhost-relative links in GUI)
 		ok2, absCanon := validators.MustJobLinkURL(text, href, base, good, bad, thr, hardExcl)
@@ -251,6 +253,12 @@ func (g *GenericScraper) extractFromHTML(root string, r io.ReadCloser, cfg *conf
 	})
 
 	return out, nil
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Stub implementation - returns empty string until instructed where/how to find the date.
+func (g *GenericScraper) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	return "", nil
 }
 
 /********** tiny helper **********/

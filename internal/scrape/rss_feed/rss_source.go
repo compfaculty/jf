@@ -3,6 +3,7 @@ package scrape
 import (
 	"context"
 	"fmt"
+	"jf/internal/scrape"
 	"jf/internal/scrape/common"
 	"net/url"
 	"strings"
@@ -19,25 +20,29 @@ type RSSSource struct {
 	aggregator models.Aggregator
 	parser     *feed.Parser
 	browser    common.Browser // Optional, for extracting company info from job URLs
+
+	// Page parsers for specific job boards
+	realWorkFromAnywhere *RealWorkFromAnywhereParser
 }
 
 // NewRSSSource creates a new RSS feed source.
 func NewRSSSource(agg models.Aggregator, parser *feed.Parser, browser common.Browser) *RSSSource {
 	return &RSSSource{
-		aggregator: agg,
-		parser:     parser,
-		browser:    browser,
+		aggregator:           agg,
+		parser:               parser,
+		browser:              browser,
+		realWorkFromAnywhere: NewRealWorkFromAnywhereParser(browser),
 	}
 }
 
 // FindJobs parses the RSS feed and returns job listings.
-func (r *RSSSource) FindJobs(ctx context.Context, cfg *config.Config) ([]JobListing, error) {
+func (r *RSSSource) FindJobs(ctx context.Context, cfg *config.Config) ([]scrape.JobListing, error) {
 	items, err := r.parser.ParseFeed(ctx, r.aggregator.SourceURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse RSS feed: %w", err)
 	}
 
-	listings := make([]JobListing, 0, len(items))
+	listings := make([]scrape.JobListing, 0, len(items))
 	for _, item := range items {
 		if strings.TrimSpace(item.Link) == "" {
 			continue
@@ -51,7 +56,7 @@ func (r *RSSSource) FindJobs(ctx context.Context, cfg *config.Config) ([]JobList
 			"guid":        item.GUID,
 		}
 
-		listings = append(listings, JobListing{
+		listings = append(listings, scrape.JobListing{
 			URL:     strings.TrimSpace(item.Link),
 			Title:   strings.TrimSpace(item.Title),
 			Source:  r.aggregator.Name,
@@ -63,15 +68,15 @@ func (r *RSSSource) FindJobs(ctx context.Context, cfg *config.Config) ([]JobList
 }
 
 // ParseJobMetadata extracts detailed metadata from an RSS item.
-func (r *RSSSource) ParseJobMetadata(ctx context.Context, listing JobListing) (*JobMetadata, error) {
-	metadata := &JobMetadata{
+func (r *RSSSource) ParseJobMetadata(ctx context.Context, listing scrape.JobListing) (*scrape.JobMetadata, error) {
+	metadata := &scrape.JobMetadata{
 		Title:       listing.Title,
 		URL:         listing.URL,
 		Source:      listing.Source,
 		Description: listing.RawData["description"],
 	}
 
-	// Parse publication date
+	// Parse publication date from RSS feed
 	if pubDateStr := listing.RawData["pubDate"]; pubDateStr != "" {
 		formats := []string{
 			time.RFC1123Z,
@@ -97,28 +102,54 @@ func (r *RSSSource) ParseJobMetadata(ctx context.Context, listing JobListing) (*
 	// Extract location from description
 	metadata.Location = feed.ExtractLocation(metadata.Description)
 
-	// Try to extract company name from URL or page
-	// RSS feeds often link to external company sites or HR portals
+	// For realworkfromanywhere.com and similar job boards, parse the job page
 	if listing.URL != "" {
-		// Check if URL is an HR portal
 		parsedURL, err := url.Parse(listing.URL)
 		if err == nil {
 			host := strings.ToLower(parsedURL.Hostname())
-			isPortal := extract.DetectHRPortal(host)
 
-			if isPortal {
-				// For HR portals, extract company name and set ApplyURL
-				companyName, applyURL, _, err := extract.ExtractCompanyFromJob(ctx, listing.URL, r.browser)
-				if err == nil && companyName != "" {
-					metadata.Company = companyName
-					metadata.ApplyURL = applyURL
-					metadata.ApplyViaPortal = true
+			// Check if this is a job board we need to parse specially
+			if strings.Contains(host, "realworkfromanywhere.com") {
+				if pageMetadata, err := r.realWorkFromAnywhere.ParseJobPage(ctx, listing.URL); err == nil {
+					// Use parsed metadata, with RSS data as fallback
+					if pageMetadata.Title != "" {
+						metadata.Title = pageMetadata.Title
+					}
+					if pageMetadata.Company != "" {
+						metadata.Company = pageMetadata.Company
+					}
+					if !pageMetadata.DatePosted.IsZero() {
+						metadata.DatePosted = pageMetadata.DatePosted
+					}
+					if pageMetadata.Description != "" {
+						metadata.Description = pageMetadata.Description
+					}
+					if pageMetadata.ApplyURL != "" {
+						metadata.ApplyURL = pageMetadata.ApplyURL
+						metadata.ApplyViaPortal = pageMetadata.ApplyViaPortal
+					}
+					if pageMetadata.Location != "" {
+						metadata.Location = pageMetadata.Location
+					}
 				}
 			} else {
-				// For regular company sites, try to extract company name
-				companyName, _, _, err := extract.ExtractCompanyFromJob(ctx, listing.URL, r.browser)
-				if err == nil && companyName != "" {
-					metadata.Company = companyName
+				// For other URLs, check if it's an HR portal
+				isPortal := extract.DetectHRPortal(host)
+
+				if isPortal {
+					// For HR portals, extract company name and set ApplyURL
+					companyName, applyURL, _, err := extract.ExtractCompanyFromJob(ctx, listing.URL, r.browser)
+					if err == nil && companyName != "" {
+						metadata.Company = companyName
+						metadata.ApplyURL = applyURL
+						metadata.ApplyViaPortal = true
+					}
+				} else {
+					// For regular company sites, try to extract company name
+					companyName, _, _, err := extract.ExtractCompanyFromJob(ctx, listing.URL, r.browser)
+					if err == nil && companyName != "" {
+						metadata.Company = companyName
+					}
 				}
 			}
 		}

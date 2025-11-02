@@ -3,6 +3,7 @@ package scrape
 import (
 	"context"
 	"fmt"
+	"jf/internal/scrape/common"
 	"net/http"
 	"regexp"
 	"strings"
@@ -19,18 +20,18 @@ import (
 // CompanySource implements JobSource for direct company career pages.
 type CompanySource struct {
 	company models.Company
-	scraper JobScraper // Existing scraper (Generic, SecretTelAviv, etc.)
-	client  Doer
-	browser Browser
+	scraper common.JobScraper // Existing scraper (Generic, SecretTelAviv, etc.)
+	client  common.Doer
+	browser common.Browser
 	wp      *pond.WorkerPool
 }
 
 // NewCompanySource creates a new company source from an existing scraper.
-func NewCompanySource(c models.Company, scraper JobScraper, client Doer, browser Browser, wp *pond.WorkerPool) *CompanySource {
+func NewCompanySource(c models.Company, scraper common.JobScraper, client common.Doer, browser common.Browser, wp *pond.WorkerPool) *CompanySource {
 	return &CompanySource{
 		company: c,
 		scraper: scraper,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 		browser: browser,
 		wp:      wp,
 	}
@@ -166,7 +167,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 		titleSel = doc.Find("title").First()
 	}
 	if titleSel.Length() > 0 {
-		metadata.Title = strings.TrimSpace(joinWS(titleSel.Text()))
+		metadata.Title = strings.TrimSpace(common.JoinWS(titleSel.Text()))
 	}
 
 	// Try to find description from common selectors
@@ -180,7 +181,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 	}
 	for _, sel := range descSelectors {
 		if elem := doc.Find(sel).First(); elem.Length() > 0 {
-			text := strings.TrimSpace(joinWS(elem.Text()))
+			text := strings.TrimSpace(common.JoinWS(elem.Text()))
 			if len(text) > 100 { // Only use if substantial content
 				metadata.Description = text
 				break
@@ -196,7 +197,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 	}
 	for _, sel := range locationSelectors {
 		if elem := doc.Find(sel).First(); elem.Length() > 0 {
-			metadata.Location = strings.TrimSpace(joinWS(elem.Text()))
+			metadata.Location = strings.TrimSpace(common.JoinWS(elem.Text()))
 			if metadata.Location != "" {
 				break
 			}
@@ -218,7 +219,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 		if elem := doc.Find(sel).First(); elem.Length() > 0 {
 			dateStr := elem.AttrOr("datetime", "")
 			if dateStr == "" {
-				dateStr = strings.TrimSpace(joinWS(elem.Text()))
+				dateStr = strings.TrimSpace(common.JoinWS(elem.Text()))
 			}
 			if dateStr != "" {
 				if t, err := time.Parse(time.RFC3339, dateStr); err == nil {

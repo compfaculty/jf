@@ -1,9 +1,10 @@
-package scrape
+package companysite
 
 import (
 	"context"
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/scrape/common"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,13 +23,13 @@ import (
 //     - Requirements (compact): items of the <ul> that follows the <p><strong>Requirements</strong></p>
 type FortySeas struct {
 	company models.Company
-	client  Doer
+	client  common.Doer
 }
 
-func NewFortySeas(c models.Company, client Doer) *FortySeas {
+func NewFortySeas(c models.Company, client common.Doer) *FortySeas {
 	return &FortySeas{
 		company: c,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 	}
 }
 
@@ -79,12 +80,12 @@ func (s *FortySeas) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 				return nil // best-effort: skip this one
 			}
 
-			title := normWS(jdoc.Find("h1.heading-11").First().Text())
+			title := common.NormWS(jdoc.Find("h1.heading-11").First().Text())
 			if title == "" {
-				title = normWS(jdoc.Find("h1").First().Text())
+				title = common.NormWS(jdoc.Find("h1").First().Text())
 				if title == "" {
 					if u, _ := url.Parse(jobURL); u != nil {
-						title = slugToTitle(strings.TrimPrefix(u.Path, "/open-positions/"))
+						title = common.SlugToTitle(strings.TrimPrefix(u.Path, "/open-positions/"))
 					}
 				}
 			}
@@ -113,7 +114,7 @@ func (s *FortySeas) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 
 	_ = g.Wait() // ignore per-item skips
 
-	return dedupeScraped(out), nil
+	return common.DedupeScraped(out), nil
 }
 
 func (s *FortySeas) fetchDoc(ctx context.Context, u string) (*goquery.Document, error) {
@@ -195,7 +196,7 @@ func extractRequirementsCompact(doc *goquery.Document) string {
 			}
 			var items []string
 			ul.Find("li").Each(func(_ int, li *goquery.Selection) {
-				t := normWS(li.Text())
+				t := common.NormWS(li.Text())
 				if t != "" {
 					items = append(items, t)
 				}
@@ -208,4 +209,10 @@ func extractRequirementsCompact(doc *goquery.Document) string {
 	})
 
 	return compact
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Stub implementation - returns empty string until instructed where/how to find the date.
+func (s *FortySeas) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	return "", nil
 }

@@ -1,4 +1,4 @@
-package scrape
+package companysite
 
 import (
 	"context"
@@ -16,18 +16,19 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/alitto/pond" // or your local pond with NewPool/NewGroupContext
 
+	"jf/internal/scrape/common"
 	util "jf/internal/utils"
 )
 
 /********** Comeet client **********/
 
 type ComeetClient struct {
-	http Doer
+	http common.Doer
 	wp   *pond.WorkerPool // shared pool; create a group per bulk call
 }
 
-func NewComeet(client Doer) *ComeetClient {
-	return &ComeetClient{http: ensureClient(client)}
+func NewComeet(client common.Doer) *ComeetClient {
+	return &ComeetClient{http: common.EnsureClient(client)}
 }
 
 func (c *ComeetClient) WithPool(wp *pond.WorkerPool) *ComeetClient {
@@ -297,7 +298,7 @@ func titleFromComeetURL(raw string) string {
 		if s == "" || looksLikeComeetCode(s) {
 			continue
 		}
-		return strings.TrimSpace(slugToTitle(s)) // your helper
+		return strings.TrimSpace(common.SlugToTitle(s)) // your helper
 	}
 	return strings.TrimSpace(u.Hostname())
 }

@@ -27,6 +27,7 @@ type Job struct {
 	HREmail        string     `json:"hr_email,omitempty"`
 	HRPhone        string     `json:"hr_phone,omitempty"`
 	DiscoveredAt   time.Time  `json:"discovered_at"`
+	PostedAt       string     `json:"posted_at,omitempty"` // When the job was posted on the internet (ISO format string)
 	Applied        bool       `json:"applied"`
 	AppliedAt      *time.Time `json:"applied_at,omitempty"`
 }

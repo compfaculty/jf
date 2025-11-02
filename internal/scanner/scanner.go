@@ -255,6 +255,9 @@ func (m *Scanner) processSource(
 			j.HRPhone = strings.TrimSpace(metadata.HRPhone)
 			j.ApplyURL = strings.TrimSpace(metadata.ApplyURL)
 			j.ApplyViaPortal = metadata.ApplyViaPortal
+			if !metadata.DatePosted.IsZero() {
+				j.PostedAt = metadata.DatePosted.Format(time.RFC3339)
+			}
 
 			if aggregator != nil {
 				j.SourceID = aggregator.ID

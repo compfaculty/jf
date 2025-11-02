@@ -1,4 +1,4 @@
-package scrape
+package companysite
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/scrape/common"
 	util "jf/internal/utils"
 
 	"github.com/alitto/pond"
@@ -13,14 +14,14 @@ import (
 
 type AkeylessScraper struct {
 	company models.Company
-	client  Doer
+	client  common.Doer
 	wp      *pond.WorkerPool // optional shared pool
 }
 
-func NewAkeyless(c models.Company, client Doer, wp *pond.WorkerPool) *AkeylessScraper {
+func NewAkeyless(c models.Company, client common.Doer, wp *pond.WorkerPool) *AkeylessScraper {
 	return &AkeylessScraper{
 		company: c,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 		wp:      wp,
 	}
 }
@@ -53,5 +54,11 @@ func (s *AkeylessScraper) GetJobs(ctx context.Context, _ *config.Config) ([]mode
 			Description: strings.TrimSpace(r.HTML),
 		})
 	}
-	return dedupeScraped(jobs), nil
+	return common.DedupeScraped(jobs), nil
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Stub implementation - returns empty string until instructed where/how to find the date.
+func (s *AkeylessScraper) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	return "", nil
 }

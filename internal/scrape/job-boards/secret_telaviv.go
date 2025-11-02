@@ -7,6 +7,7 @@ import (
 	"io"
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/scrape/common"
 	"jf/internal/utils"
 	"jf/internal/validators"
 	"log"
@@ -25,13 +26,13 @@ import (
 // SecretTelAviv scraper for jobs.secrettelaviv.com pages.
 type SecretTelAviv struct {
 	company models.Company
-	client  Doer
+	client  common.Doer
 }
 
-func NewSecretTelAviv(c models.Company, client Doer) *SecretTelAviv {
+func NewSecretTelAviv(c models.Company, client common.Doer) *SecretTelAviv {
 	return &SecretTelAviv{
 		company: c,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 	}
 }
 
@@ -56,7 +57,7 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			if a.Length() == 0 {
 				return
 			}
-			title := strings.TrimSpace(joinWS(a.Text()))
+			title := strings.TrimSpace(common.JoinWS(a.Text()))
 			href, _ := a.Attr("href")
 			if title == "" || strings.TrimSpace(href) == "" {
 				return
@@ -95,20 +96,32 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		}
 		items := parsePage(doc)
 
-		// 2) per-job inactive check (lightweight GET + DOM probe)
+		// 2) per-job inactive check + metadata extraction (lightweight GET + DOM probe)
 		filtered := make([]models.ScrapedJob, 0, len(items))
 		for _, j := range items {
-			ok, inactive := s.isInactive(ctx, j.URL)
-			if ok && inactive {
-				continue
+			ok, inactive, companyName, postedDate := s.fetchJobMetadata(ctx, j.URL)
+			if !ok || inactive {
+				if inactive {
+					continue
+				}
+				// If fetch failed, still include the job but keep original metadata
+				filtered = append(filtered, j)
+			} else {
+				// Update job with extracted metadata
+				if companyName != "" {
+					j.Company = companyName
+				}
+				if postedDate != "" {
+					j.DatePosted = postedDate
+				}
+				filtered = append(filtered, j)
 			}
-			filtered = append(filtered, j)
 
 			// tiny delay to be polite between item checks
 			select {
 			case <-time.After(120 * time.Millisecond):
 			case <-ctx.Done():
-				return dedupeScraped(append(all, filtered...)), ctx.Err()
+				return common.DedupeScraped(append(all, filtered...)), ctx.Err()
 			}
 		}
 
@@ -118,12 +131,12 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		select {
 		case <-time.After(250 * time.Millisecond):
 		case <-ctx.Done():
-			return dedupeScraped(all), ctx.Err()
+			return common.DedupeScraped(all), ctx.Err()
 		}
 		next = findNext(doc, next)
 	}
 
-	return dedupeScraped(all), nil
+	return common.DedupeScraped(all), nil
 }
 
 // findNext returns the absolute URL of the next page or "" if none.
@@ -139,7 +152,7 @@ func findNext(doc *goquery.Document, base string) string {
 	if strings.HasPrefix(href, "http") {
 		return href
 	}
-	return resolveURLMust(base, href)
+	return common.ResolveURLMust(base, href)
 }
 
 // fetchDoc gets the URL and returns a parsed document or an error.
@@ -172,30 +185,30 @@ func (s *SecretTelAviv) fetchDoc(ctx context.Context, u string) (*goquery.Docume
 	return doc, nil
 }
 
-// isInactive GETs the job page and detects the WPJB inactive message.
-// Returns (ok, inactive).
-func (s *SecretTelAviv) isInactive(ctx context.Context, jobURL string) (bool, bool) {
+// fetchJobMetadata GETs the job page, extracts metadata, and checks if inactive.
+// Returns (ok, inactive, companyName, postedDate).
+func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bool, bool, string, string) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, jobURL, nil)
 	resp, err := s.client.Do(req)
 	if err != nil || resp == nil {
-		return false, false
+		return false, false, "", ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		// non-200 often means gone/redirect/etc. Treat as inconclusive; keep the job.
-		return true, false
+		return true, false, "", ""
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return false, false
+		return false, false, "", ""
 	}
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
-		return false, false
+		return false, false, "", ""
 	}
 
 	// Look inside .post-content for the error box text
@@ -209,15 +222,52 @@ func (s *SecretTelAviv) isInactive(ctx context.Context, jobURL string) (bool, bo
 		))
 	}
 
-	if errBox == "" {
-		return true, false
+	// Check for inactive status
+	if errBox != "" {
+		// key phrase from the site:
+		if strings.Contains(errBox, "selected job is inactive or does not exist") {
+			return true, true, "", ""
+		}
 	}
 
-	// key phrase from the site:
-	if strings.Contains(errBox, "selected job is inactive or does not exist") {
-		return true, true
+	// Extract company name - get only direct text, not nested elements
+	companyName := strings.TrimSpace(doc.Find(".wpjb-top-header-title").First().Text())
+	// The selector might include nested UL text; extract just the first line if needed
+	if strings.Contains(companyName, "\n") {
+		lines := strings.SplitN(companyName, "\n", 2)
+		companyName = strings.TrimSpace(lines[0])
 	}
-	return true, false
+
+	// Extract posted date
+	var postedDate string
+	// Try to find the published date in various places on the page
+	publishedElem := doc.Find(".wpjb-top-header-published").First()
+	if publishedElem.Length() > 0 {
+		// Look inside for <i> tag
+		postedText := strings.TrimSpace(publishedElem.Find("i").First().Text())
+		if postedText == "" {
+			// If no <i>, try direct text
+			postedText = strings.TrimSpace(publishedElem.Text())
+		}
+		if postedText != "" {
+			// Handle format like "Published: October 9, 2025"
+			parts := strings.SplitN(postedText, ":", 2)
+			if len(parts) == 2 {
+				postedDate = strings.TrimSpace(parts[1])
+			} else {
+				postedDate = postedText
+			}
+		}
+	}
+
+	return true, false, companyName, postedDate
+}
+
+// isInactive GETs the job page and detects the WPJB inactive message.
+// Returns (ok, inactive).
+func (s *SecretTelAviv) isInactive(ctx context.Context, jobURL string) (bool, bool) {
+	ok, inactive, _, _ := s.fetchJobMetadata(ctx, jobURL)
+	return ok, inactive
 }
 
 // ApplyJobs: actually submits Secret Tel Aviv application forms for given jobs.
@@ -402,7 +452,7 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 		var ok bool
 		var msg string
 		for _, ff := range candidates {
-			postErr, ok, msg = s.trySTAApply(ctx, action, j.URL, timeout, vals, ff, cv, cl, j.ID)
+			ok, msg, postErr = s.trySTAApply(ctx, action, j.URL, timeout, vals, ff, cv, cl, j.ID)
 			if postErr == nil {
 				break
 			}
@@ -436,10 +486,10 @@ func (s *SecretTelAviv) trySTAApply(
 		Do(*http.Request) (*http.Response, error)
 	},
 	jobID string,
-) (error, bool, string) {
+) (bool, string, error) {
 	body, ctype, err := buildMultipart(vals, fileField, cvPath)
 	if err != nil {
-		return err, false, ""
+		return false, "", err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -453,7 +503,7 @@ func (s *SecretTelAviv) trySTAApply(
 
 	resp, err := cl.Do(req)
 	if err != nil {
-		return err, false, ""
+		return false, "", err
 	}
 	bb, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
@@ -471,16 +521,16 @@ func (s *SecretTelAviv) trySTAApply(
 			strings.Contains(preview, "thank you"),
 			strings.Contains(preview, "successfully"),
 			strings.Contains(preview, "applied"):
-			return nil, true, "Submitted"
+			return true, "Submitted", nil
 		case strings.Contains(preview, "error"),
 			strings.Contains(preview, "invalid"),
 			strings.Contains(preview, "required"):
-			return nil, false, "Submitted but error text detected"
+			return false, "Submitted but error text detected", nil
 		default:
-			return nil, true, "Submitted (no explicit confirmation found)"
+			return true, "Submitted (no explicit confirmation found)", nil
 		}
 	default:
-		return fmt.Errorf("POST failed (%d)", resp.StatusCode), false, ""
+		return false, "", fmt.Errorf("POST failed (%d)", resp.StatusCode)
 	}
 }
 
@@ -632,4 +682,11 @@ func toInt(s string) int {
 		n = n*10 + int(r-'0')
 	}
 	return n
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Returns the posted date in a human-readable format, or empty string if not found.
+func (s *SecretTelAviv) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	_, _, _, postedDate := s.fetchJobMetadata(ctx, jobURL)
+	return postedDate, nil
 }

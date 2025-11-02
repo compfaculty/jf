@@ -73,14 +73,6 @@ var RSSFeeds = []struct {
 	{"Real Work From Anywhere", "https://www.realworkfromanywhere.com/rss.xml", "rss_feed", "https://www.realworkfromanywhere.com/rss.xml"},
 }
 
-var jobBoards = []struct {
-	Name      string
-	SourceURL string
-}{ // Scrapers (site scraping)
-	{"Secret TLV", "https://jobs.secrettelaviv.com/"},
-	{"Telfed Job Board", "https://www.telfed.org.il/job-board/"},
-}
-
 // embeddedAggregators combines both RSS feeds and job boards for seeding.
 // This is used by SeedAggregators to populate the database.
 var embeddedAggregators = []struct {

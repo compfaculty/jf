@@ -1,9 +1,10 @@
-package scrape
+package companysite
 
 import (
 	"context"
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/scrape/common"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,13 +18,13 @@ import (
 // AudioCodes scraper for https://www.audiocodes.com/careers/positions
 type AudioCodes struct {
 	company models.Company
-	client  Doer
+	client  common.Doer
 }
 
-func NewAudioCodes(c models.Company, client Doer) *AudioCodes {
+func NewAudioCodes(c models.Company, client common.Doer) *AudioCodes {
 	return &AudioCodes{
 		company: c,
-		client:  ensureClient(client),
+		client:  common.EnsureClient(client),
 	}
 }
 
@@ -81,7 +82,7 @@ func (s *AudioCodes) GetJobs(ctx context.Context, _ *config.Config) ([]models.Sc
 			}
 
 			// Title from: <div class="share-component"><h1>...</h1>
-			title := normWS(jdoc.Find(".share-component h1").First().Text())
+			title := common.NormWS(jdoc.Find(".share-component h1").First().Text())
 			if title == "" {
 				title = "Untitled"
 			}
@@ -140,7 +141,7 @@ func (s *AudioCodes) GetJobs(ctx context.Context, _ *config.Config) ([]models.Sc
 	}
 
 FINISH:
-	return dedupeScraped(out), nil
+	return common.DedupeScraped(out), nil
 }
 
 func (s *AudioCodes) fetchDoc(ctx context.Context, u string) (*goquery.Document, error) {
@@ -224,7 +225,7 @@ func extractAudioCodesRequirements(doc *goquery.Document) string {
 			ul := p.NextAllFiltered("ul").First()
 			if ul.Length() > 0 {
 				ul.Find("li").Each(func(_ int, li *goquery.Selection) {
-					t := normWS(li.Text())
+					t := common.NormWS(li.Text())
 					if t != "" {
 						items = append(items, t)
 					}
@@ -232,7 +233,7 @@ func extractAudioCodesRequirements(doc *goquery.Document) string {
 			} else {
 				// Otherwise consume subsequent non-empty <p> siblings
 				p.NextAllFiltered("p").Each(func(_ int, sib *goquery.Selection) {
-					t := normWS(sib.Text())
+					t := common.NormWS(sib.Text())
 					if t != "" {
 						items = append(items, t)
 					}
@@ -246,4 +247,10 @@ func extractAudioCodesRequirements(doc *goquery.Document) string {
 		}
 	})
 	return compact
+}
+
+// GetJobPosted extracts the posted date from a job URL.
+// Stub implementation - returns empty string until instructed where/how to find the date.
+func (s *AudioCodes) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
+	return "", nil
 }
