@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"io"
 	"math"
 	"math/rand"
 	"net"
@@ -8,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"jf/internal/utils"
 
 	"golang.org/x/time/rate"
 )
@@ -96,9 +99,26 @@ func New(cfg HttpClientConfig) *Client {
 }
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+
+	// Log request details in verbose mode
+	if utils.IsVerbose() {
+		utils.Verbosef("HTTP %s %s", req.Method, req.URL.String())
+		if len(req.Header) > 0 {
+			for k, v := range req.Header {
+				utils.Verbosef("HTTP request header: %s: %s", k, strings.Join(v, ", "))
+			}
+		}
+	}
+
+	// Rate limiting
 	if c.lim != nil {
+		waitStart := time.Now()
 		if err := c.lim.Wait(req.Context()); err != nil {
 			return nil, err
+		}
+		if utils.IsVerbose() {
+			utils.Verbosef("HTTP rate limit wait: %s", time.Since(waitStart))
 		}
 	}
 
@@ -106,13 +126,44 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	var err error
 
 	for attempt := 1; attempt <= c.retryN; attempt++ {
+		if utils.IsVerbose() && attempt > 1 {
+			utils.Verbosef("HTTP retry attempt %d/%d for %s %s", attempt, c.retryN, req.Method, req.URL.String())
+		}
+
 		resp, err = c.http.Do(req)
 		if err == nil && !shouldRetryStatus(resp.StatusCode) {
+			dur := time.Since(start)
+			if utils.IsVerbose() {
+				utils.Verbosef("HTTP response: %s %s -> %d (dur=%s)", req.Method, req.URL.String(), resp.StatusCode, dur)
+				if len(resp.Header) > 0 {
+					for k, v := range resp.Header {
+						utils.Verbosef("HTTP response header: %s: %s", k, strings.Join(v, ", "))
+					}
+				}
+				// Preview response body (first 200 chars) - read and restore
+				if resp.Body != nil {
+					bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 200))
+					if readErr == nil {
+						preview := string(bodyBytes)
+						if len(preview) > 0 {
+							utils.Verbosef("HTTP response body preview: %s", preview)
+						}
+						// Restore body by creating a new reader with the bytes we read
+						resp.Body = io.NopCloser(io.MultiReader(strings.NewReader(preview), resp.Body))
+					}
+				}
+			}
 			return resp, nil
 		}
 
 		if resp != nil && shouldRetryStatus(resp.StatusCode) {
+			if utils.IsVerbose() {
+				utils.Verbosef("HTTP retryable status %d for %s %s", resp.StatusCode, req.Method, req.URL.String())
+			}
 			if d := retryAfterDelay(resp); d > 0 {
+				if utils.IsVerbose() {
+					utils.Verbosef("HTTP waiting for Retry-After: %s", d)
+				}
 				select {
 				case <-time.After(d):
 				case <-req.Context().Done():
@@ -127,6 +178,9 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			break
 		}
 		backoff := c.backoffDelay(attempt)
+		if utils.IsVerbose() {
+			utils.Verbosef("HTTP backoff delay: %s before retry", backoff)
+		}
 		select {
 		case <-time.After(backoff):
 		case <-req.Context().Done():
@@ -135,7 +189,13 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	if err != nil {
+		if utils.IsVerbose() {
+			utils.Verbosef("HTTP error after %d attempts: %s %s -> %v (dur=%s)", c.retryN, req.Method, req.URL.String(), err, time.Since(start))
+		}
 		return nil, err
+	}
+	if resp != nil && utils.IsVerbose() {
+		utils.Verbosef("HTTP final response: %s %s -> %d (dur=%s)", req.Method, req.URL.String(), resp.StatusCode, time.Since(start))
 	}
 	return resp, nil
 }

@@ -14,6 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"jf/internal/models"
+	"jf/internal/utils"
 )
 
 var _ Repo = (*SQLiteRepo)(nil)
@@ -30,7 +31,8 @@ func NewSQLite(path string) (*SQLiteRepo, error) {
 	logger := log.Default()
 	var v string = os.Getenv("JF_DB_DEBUG")
 	v = strings.ToLower(strings.TrimSpace(v))
-	debug := v == "1" || v == "true" || v == "yes" || v == "on"
+	// Check both environment variable and global verbose flag
+	debug := v == "1" || v == "true" || v == "yes" || v == "on" || utils.IsVerbose()
 
 	// ensure parent dir exists (useful if path points into a mount)
 	if dir := filepath.Dir(path); dir != "" && dir != "." && dir != "/" {

@@ -10,7 +10,6 @@ import (
 	"jf/internal/scrape/common"
 	"jf/internal/utils"
 	"jf/internal/validators"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -321,7 +320,7 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 	// --- Path normalization & validation (handles ~, $HOME, backslashes on Linux, etc) ---
 	cvRaw := strings.TrimSpace(p.CVPath)
 	cv, normErr := normalizePath(cvRaw)
-	log.Printf("[STA] config CV raw=%q normalized=%q goos=%s", cvRaw, cv, runtime.GOOS)
+	utils.Verbosef("[STA] config CV raw=%q normalized=%q goos=%s", cvRaw, cv, runtime.GOOS)
 	if normErr != nil {
 		return nil, fmt.Errorf("cv path invalid: %v", normErr)
 	}
@@ -352,14 +351,14 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 		j := jobs[i]
 		out := models.AppliedResult{JobID: j.ID, URL: j.URL, Title: j.Title}
 
-		log.Printf("[STA] apply start id=%s url=%s title=%q cv=%q tos=%v headhunters=%v",
+		utils.Verbosef("[STA] apply start id=%s url=%s title=%q cv=%q tos=%v headhunters=%v",
 			j.ID, j.URL, j.Title, cv, p.AgreeTOS, p.ForwardToHeadhunters)
 
 		u := strings.TrimSpace(j.URL)
 		if u == "" {
 			out.Message = "missing job url"
 			results[i] = out
-			log.Printf("[STA] id=%s error=%s", j.ID, out.Message)
+			utils.Verbosef("[STA] id=%s error=%s", j.ID, out.Message)
 			continue
 		}
 
@@ -374,14 +373,14 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 		if err != nil {
 			out.Message = "HTTP error: " + err.Error()
 			results[i] = out
-			log.Printf("[STA] id=%s GET error=%v", j.ID, err)
+			utils.Verbosef("[STA] id=%s GET error=%v", j.ID, err)
 			continue
 		}
 		out.Status = resp.StatusCode
 
 		ct := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
 		clen := strings.TrimSpace(resp.Header.Get("Content-Length"))
-		log.Printf("[STA] id=%s GET status=%d ct=%q len=%s", j.ID, resp.StatusCode, ct, clen)
+		utils.Verbosef("[STA] id=%s GET status=%d ct=%q len=%s", j.ID, resp.StatusCode, ct, clen)
 
 		// Read body fully, then parse from memory so context cancel won't break parsing.
 		bb, readErr := io.ReadAll(resp.Body)
@@ -389,14 +388,14 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 		if readErr != nil {
 			out.Message = "read error: " + readErr.Error()
 			results[i] = out
-			log.Printf("[STA] id=%s GET read error=%v", j.ID, readErr)
+			utils.Verbosef("[STA] id=%s GET read error=%v", j.ID, readErr)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			out.Message = fmt.Sprintf("GET failed (%d)", resp.StatusCode)
 			results[i] = out
-			log.Printf("[STA] id=%s %s", j.ID, out.Message)
+			utils.Verbosef("[STA] id=%s %s", j.ID, out.Message)
 			continue
 		}
 
@@ -408,7 +407,7 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 			}
 			out.Message = "parse error: " + err.Error()
 			results[i] = out
-			log.Printf("[STA] id=%s parse error=%v bodyPreview=%q", j.ID, err, preview)
+			utils.Verbosef("[STA] id=%s parse error=%v bodyPreview=%q", j.ID, err, preview)
 			continue
 		}
 
@@ -416,18 +415,18 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 		if form.Length() == 0 {
 			out.Message = "apply form not found"
 			results[i] = out
-			log.Printf("[STA] id=%s %s", j.ID, out.Message)
+			utils.Verbosef("[STA] id=%s %s", j.ID, out.Message)
 			continue
 		}
 
 		action := strings.TrimSpace(attr(form, "action", j.URL))
 		action = resolve(j.URL, action)
 		method := strings.ToLower(strings.TrimSpace(attr(form, "method", "post")))
-		log.Printf("[STA] id=%s form action=%s method=%s", j.ID, action, method)
+		utils.Verbosef("[STA] id=%s form action=%s method=%s", j.ID, action, method)
 		if method != "post" {
 			out.Message = "unexpected form method: " + method
 			results[i] = out
-			log.Printf("[STA] id=%s %s", j.ID, out.Message)
+			utils.Verbosef("[STA] id=%s %s", j.ID, out.Message)
 			continue
 		}
 
@@ -488,7 +487,7 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 			candidates = append(candidates, fileField)
 		}
 		candidates = append(candidates, "file", "cv", "resume")
-		log.Printf("[STA] id=%s file candidates=%v", j.ID, candidates)
+		utils.Verbosef("[STA] id=%s file candidates=%v", j.ID, candidates)
 
 		// Try posting with candidates until one works
 		var postErr error
@@ -499,19 +498,19 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 			if postErr == nil {
 				break
 			}
-			log.Printf("[STA] id=%s POST with field=%q error=%v", j.ID, ff, postErr)
+			utils.Verbosef("[STA] id=%s POST with field=%q error=%v", j.ID, ff, postErr)
 		}
 		if postErr != nil {
 			out.Message = "HTTP error: " + postErr.Error()
 			results[i] = out
-			log.Printf("[STA] id=%s final error=%v", j.ID, postErr)
+			utils.Verbosef("[STA] id=%s final error=%v", j.ID, postErr)
 			continue
 		}
 
 		out.OK = ok
 		out.Message = msg
 		results[i] = out
-		log.Printf("[STA] apply done id=%s ok=%v msg=%q", j.ID, out.OK, out.Message)
+		utils.Verbosef("[STA] apply done id=%s ok=%v msg=%q", j.ID, out.OK, out.Message)
 	}
 
 	return results, nil
@@ -542,7 +541,7 @@ func (s *SecretTelAviv) trySTAApply(
 	// We must set Content-Type to include the multipart boundary:
 	req.Header.Set("Content-Type", ctype)
 
-	log.Printf("[STA] id=%s POST url=%s fileField=%q size=%d referer=%s", jobID, actionURL, fileField, body.Len(), referer)
+	utils.Verbosef("[STA] id=%s POST url=%s fileField=%q size=%d referer=%s", jobID, actionURL, fileField, body.Len(), referer)
 
 	resp, err := cl.Do(req)
 	if err != nil {
@@ -555,7 +554,7 @@ func (s *SecretTelAviv) trySTAApply(
 	if len(preview) > 320 {
 		preview = preview[:320] + "…"
 	}
-	log.Printf("[STA] id=%s POST status=%d bodyPreview=%q", jobID, resp.StatusCode, preview)
+	utils.Verbosef("[STA] id=%s POST status=%d bodyPreview=%q", jobID, resp.StatusCode, preview)
 
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect:

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"jf/internal/httpx"
+	"jf/internal/utils"
 	"log"
 	"net/http"
 	"os"
@@ -22,8 +23,15 @@ func main() {
 		selector = flag.String("selector", "", "CSS selector to extract (optional, can specify multiple)")
 		saveFile = flag.String("save", "", "Save full HTML to file (optional)")
 		textOnly = flag.Bool("text", false, "Extract text only (no HTML tags)")
+		verbose  = flag.Bool("v", false, "Enable verbose logging")
 	)
 	flag.Parse()
+
+	// Set global verbose state
+	utils.SetVerbose(*verbose)
+	if *verbose {
+		log.Printf("[VERBOSE] verbose logging enabled")
+	}
 
 	if *url == "" {
 		fmt.Fprintf(os.Stderr, "Usage: %s -url <URL> [options]\n", os.Args[0])

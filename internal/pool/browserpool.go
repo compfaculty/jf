@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"jf/internal/utils"
 )
 
 // BrowserPool is a small fixed-size pool of chromedp contexts.
@@ -42,29 +43,29 @@ func NewBrowserPool(cfg BrowserPoolConfig) *BrowserPool {
 		cfg.Queue = 256
 	}
 
-    bp := &BrowserPool{
+	bp := &BrowserPool{
 		jobs: make(chan func(ctx context.Context), cfg.Queue),
 	}
 
 	log.Printf("[BROWSER] init workers=%d headless=%v queue=%d nav_wait=%s nav_timeout=%s",
 		cfg.Workers, cfg.Headless, cfg.Queue, cfg.NavWait, cfg.NavTimeout)
 
-    opts := append(chromedp.DefaultExecAllocatorOptions[:],
-        chromedp.Flag("headless", cfg.Headless),
-        chromedp.Flag("disable-gpu", true),
-        chromedp.Flag("no-sandbox", true),
-        chromedp.Flag("mute-audio", true),
-    )
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", cfg.Headless),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("mute-audio", true),
+	)
 
-    // When not headless, try to keep the browser unobtrusive
-    if !cfg.Headless {
-        opts = append(opts,
-            chromedp.Flag("start-minimized", true),
-            chromedp.Flag("window-size", "640,480"),           // small window
-            chromedp.Flag("window-position", "20000,20000"),   // move off-screen on most setups
-            chromedp.Flag("enable-automation", false),          // reduce automation infobar
-        )
-    }
+	// When not headless, try to keep the browser unobtrusive
+	if !cfg.Headless {
+		opts = append(opts,
+			chromedp.Flag("start-minimized", true),
+			chromedp.Flag("window-size", "640,480"),         // small window
+			chromedp.Flag("window-position", "20000,20000"), // move off-screen on most setups
+			chromedp.Flag("enable-automation", false),       // reduce automation infobar
+		)
+	}
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
 	for i := 0; i < cfg.Workers; i++ {
@@ -84,8 +85,10 @@ func NewBrowserPool(cfg BrowserPoolConfig) *BrowserPool {
 func (bp *BrowserPool) Submit(job func(ctx context.Context)) error {
 	select {
 	case bp.jobs <- job:
+		utils.Verbosef("BrowserPool: job submitted, queue length: %d/%d", len(bp.jobs), cap(bp.jobs))
 		return nil
 	default:
+		utils.Verbosef("BrowserPool: queue full, cannot submit job")
 		return errors.New("browser pool queue full")
 	}
 }
@@ -108,6 +111,9 @@ func (bp *BrowserPool) FetchHTML(ctx context.Context, url, selector string, wait
 	if selector == "" {
 		selector = "html"
 	}
+	start := time.Now()
+	utils.Verbosef("BrowserPool: FetchHTML starting url=%q selector=%q wait=%s", url, selector, wait)
+
 	var html string
 	done := make(chan struct{})
 	errCh := make(chan error, 1)
@@ -117,17 +123,21 @@ func (bp *BrowserPool) FetchHTML(ctx context.Context, url, selector string, wait
 		taskCtx, cancel := chromedp.NewContext(c)
 		defer cancel()
 
+		utils.Verbosef("BrowserPool: navigating to %s", url)
 		err2 := chromedp.Run(taskCtx,
 			chromedp.Navigate(url),
 			chromedp.Sleep(wait),
 			chromedp.OuterHTML(selector, &html, chromedp.ByQuery),
 		)
 		if err2 != nil {
+			utils.Verbosef("BrowserPool: FetchHTML error for %s: %v", url, err2)
 			errCh <- err2
 			return
 		}
+		utils.Verbosef("BrowserPool: FetchHTML completed url=%q html_len=%d dur=%s", url, len(html), time.Since(start))
 		close(done)
 	}); err != nil {
+		utils.Verbosef("BrowserPool: FetchHTML submit failed for %s: %v", url, err)
 		return "", err
 	}
 
@@ -135,8 +145,10 @@ func (bp *BrowserPool) FetchHTML(ctx context.Context, url, selector string, wait
 	case <-done:
 		return html, nil
 	case e := <-errCh:
+		utils.Verbosef("BrowserPool: FetchHTML error from worker: %v", e)
 		return "", e
 	case <-ctx.Done():
+		utils.Verbosef("BrowserPool: FetchHTML timeout/context cancelled for %s", url)
 		return "", fmt.Errorf("timeout: %w", ctx.Err())
 	}
 }
@@ -145,6 +157,9 @@ func (bp *BrowserPool) FetchHTML(ctx context.Context, url, selector string, wait
 // Additionally, it collects anchors from any iframe[src] by navigating to
 // each iframe URL as a full page (handles cross-origin boards like Greenhouse/Lever).
 func (bp *BrowserPool) FetchAnchors(ctx context.Context, url string, wait time.Duration) ([]Anchor, error) {
+	start := time.Now()
+	utils.Verbosef("BrowserPool: FetchAnchors starting url=%q wait=%s", url, wait)
+
 	var out []Anchor
 
 	done := make(chan struct{})
@@ -163,6 +178,7 @@ func (bp *BrowserPool) FetchAnchors(ctx context.Context, url string, wait time.D
 		}
 
 		// 1) Main page
+		utils.Verbosef("BrowserPool: FetchAnchors navigating to main page %s", url)
 		if err := run(
 			chromedp.Navigate(url),
 			chromedp.WaitReady(`body`, chromedp.ByQuery),
@@ -172,19 +188,22 @@ func (bp *BrowserPool) FetchAnchors(ctx context.Context, url string, wait time.D
 			chromedp.Evaluate(`Array.from(document.querySelectorAll('iframe[src]'))
         .map(f => f.getAttribute('src'))`, &frames),
 		); err != nil {
+			utils.Verbosef("BrowserPool: FetchAnchors error on main page %s: %v", url, err)
 			errCh <- err
 			return
 		}
 
+		utils.Verbosef("BrowserPool: FetchAnchors found %d anchors and %d iframes on main page", len(top), len(frames))
 		for _, p := range top {
 			out = append(out, Anchor{Text: p.Text, Href: p.Href})
 		}
 
 		// 2) For each iframe URL: navigate to it and collect its anchors too
-		for _, fsrc := range frames {
+		for i, fsrc := range frames {
 			if strings.TrimSpace(fsrc) == "" {
 				continue
 			}
+			utils.Verbosef("BrowserPool: FetchAnchors processing iframe %d/%d: %s", i+1, len(frames), fsrc)
 			var sub []pair
 			if err := run(
 				chromedp.Navigate(fsrc),
@@ -193,16 +212,20 @@ func (bp *BrowserPool) FetchAnchors(ctx context.Context, url string, wait time.D
 				chromedp.Evaluate(`Array.from(document.querySelectorAll('a[href]'))
           .map(a => ({text: (a.innerText||'').trim(), href: a.getAttribute('href')||''}))`, &sub),
 			); err != nil {
+				utils.Verbosef("BrowserPool: FetchAnchors error on iframe %s: %v (skipping)", fsrc, err)
 				// Skip broken frames but continue others
 				continue
 			}
+			utils.Verbosef("BrowserPool: FetchAnchors found %d anchors in iframe %s", len(sub), fsrc)
 			for _, p := range sub {
 				out = append(out, Anchor{Text: p.Text, Href: p.Href})
 			}
 		}
 
+		utils.Verbosef("BrowserPool: FetchAnchors completed url=%q total_anchors=%d dur=%s", url, len(out), time.Since(start))
 		close(done)
 	}); err != nil {
+		utils.Verbosef("BrowserPool: FetchAnchors submit failed for %s: %v", url, err)
 		return nil, err
 	}
 
@@ -210,8 +233,10 @@ func (bp *BrowserPool) FetchAnchors(ctx context.Context, url string, wait time.D
 	case <-done:
 		return out, nil
 	case e := <-errCh:
+		utils.Verbosef("BrowserPool: FetchAnchors error from worker: %v", e)
 		return nil, e
 	case <-ctx.Done():
+		utils.Verbosef("BrowserPool: FetchAnchors timeout/context cancelled for %s", url)
 		return nil, fmt.Errorf("timeout: %w", ctx.Err())
 	}
 }

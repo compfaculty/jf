@@ -84,18 +84,22 @@ func (m *Scanner) StartScan() error {
 }
 
 func (m *Scanner) run(ctx context.Context) {
+	utils.Verbosef("Scanner: starting scan")
+
 	// Load all three source types
 	companies, err := m.repo.ListCompanies(ctx)
 	if err != nil {
 		m.finishWithErr(err)
 		return
 	}
+	utils.Verbosef("Scanner: loaded %d companies", len(companies))
 
 	aggregators, err := m.repo.ListAggregators(ctx)
 	if err != nil {
 		m.finishWithErr(err)
 		return
 	}
+	utils.Verbosef("Scanner: loaded %d aggregators", len(aggregators))
 
 	// Separate aggregators by type
 	var jobBoards []models.Aggregator
@@ -112,6 +116,8 @@ func (m *Scanner) run(ctx context.Context) {
 	// Total sources to process
 	total := len(companies) + len(jobBoards) + len(rssFeeds)
 	m.setTotal(total)
+	utils.Verbosef("Scanner: total sources to process: %d (companies=%d, jobBoards=%d, rssFeeds=%d)",
+		total, len(companies), len(jobBoards), len(rssFeeds))
 	if total == 0 {
 		m.finishOK(100, 0)
 		return
@@ -127,6 +133,7 @@ func (m *Scanner) run(ctx context.Context) {
 	// Process companies
 	for _, c := range companies {
 		c := c
+		utils.Verbosef("Scanner: processing company: %s", c.Name)
 		source := scrape.NewJobSource(c, nil, m.http, m.bp, m.wp, feedParser)
 		m.processSource(ctx, &wg, &found, &done, total, source, &c, nil)
 	}
@@ -134,6 +141,7 @@ func (m *Scanner) run(ctx context.Context) {
 	// Process job boards
 	for _, agg := range jobBoards {
 		agg := agg
+		utils.Verbosef("Scanner: processing job board: %s", agg.Name)
 		// Ensure aggregator has a corresponding company entry
 		company := &models.Company{
 			Name:       agg.Name,
@@ -151,6 +159,7 @@ func (m *Scanner) run(ctx context.Context) {
 	// Process RSS feeds
 	for _, agg := range rssFeeds {
 		agg := agg
+		utils.Verbosef("Scanner: processing RSS feed: %s", agg.Name)
 		c := models.Company{} // Empty for RSS
 		source := scrape.NewJobSource(c, &agg, m.http, m.bp, m.wp, feedParser)
 		m.processSource(ctx, &wg, &found, &done, total, source, nil, &agg)
@@ -181,24 +190,28 @@ func (m *Scanner) processSource(
 	runOne := func() {
 		defer wg.Done()
 
+		name := ""
+		if company != nil {
+			name = company.Name
+		} else if aggregator != nil {
+			name = aggregator.Name
+		}
+
 		cctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 		defer cancel()
 
+		utils.Verbosef("Scanner: starting FindJobs for %s", name)
 		// Step 1: FindJobs - discover job listings
 		listings, err := source.FindJobs(cctx, m.cfg)
 		if err != nil && cctx.Err() == nil {
-			name := ""
-			if company != nil {
-				name = company.Name
-			} else if aggregator != nil {
-				name = aggregator.Name
-			}
 			m.appendWarn(fmt.Sprintf("%s: FindJobs error: %v", name, err))
+		} else {
+			utils.Verbosef("Scanner: FindJobs found %d listings for %s", len(listings), name)
 		}
 
 		// Step 2: ParseJobMetadata - extract detailed metadata for each listing
 		newN := 0
-		for _, listing := range listings {
+		for i, listing := range listings {
 			select {
 			case <-cctx.Done():
 				m.appendWarn(fmt.Sprintf("cancelled: %v", cctx.Err()))
@@ -207,10 +220,14 @@ func (m *Scanner) processSource(
 			}
 
 			// Parse metadata
+			utils.Verbosef("Scanner: parsing metadata for listing %d/%d from %s", i+1, len(listings), name)
 			metadata, err := source.ParseJobMetadata(cctx, listing)
 			if err != nil {
+				utils.Verbosef("Scanner: metadata parsing failed for listing %d from %s: %v", i+1, name, err)
 				continue // Skip this job if metadata parsing fails
 			}
+			utils.Verbosef("Scanner: parsed metadata: title=%q url=%q company=%q location=%q",
+				metadata.Title, metadata.URL, metadata.Company, metadata.Location)
 
 			// Determine company ID
 			var companyID string
@@ -266,17 +283,12 @@ func (m *Scanner) processSource(
 			}
 
 			if err := m.repo.UpsertJob(cctx, j); err != nil {
-				name := ""
-				if company != nil {
-					name = company.Name
-				} else if aggregator != nil {
-					name = aggregator.Name
-				}
 				m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", name, j.URL, err))
 				utils.PutJob(j)
 				continue
 			}
 
+			utils.Verbosef("Scanner: upserted job: title=%q url=%q company_id=%s", j.Title, j.URL, j.CompanyID)
 			utils.PutJob(j)
 			newN++
 		}
@@ -286,13 +298,8 @@ func (m *Scanner) processSource(
 		pct := (curDone * 100) / total
 		m.setProgress(pct, int(totalFound))
 
-		name := ""
-		if company != nil {
-			name = company.Name
-		} else if aggregator != nil {
-			name = aggregator.Name
-		}
 		log.Printf("[SCAN] %-22s jobs=%d (%d/%d, %d%%)", name, newN, curDone, total, pct)
+		utils.Verbosef("Scanner: completed processing %s: new jobs=%d total found so far=%d", name, newN, totalFound)
 	}
 
 	if m.wp != nil {

@@ -9,7 +9,6 @@ import (
 	"jf/internal/pool"
 	"jf/internal/scrape/common"
 	"jf/internal/utils"
-	"log"
 	"net/url"
 	"regexp"
 	"strings"
@@ -45,7 +44,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		return nil, nil
 	}
 
-	log.Printf("[TELFED] start url=%s", start)
+	utils.Verbosef("[TELFED] start url=%s", start)
 
 	baseURL, err := url.Parse(start)
 	if err != nil {
@@ -72,7 +71,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			j2, np := t.extractFromHTML(html, next, baseURL)
 			jobs = append(jobs, j2...)
 			nextPage = np
-			log.Printf("[TELFED] page parsed via HTML jobs=%d next=%s", len(j2), nextPage)
+			utils.Verbosef("[TELFED] page parsed via HTML jobs=%d next=%s", len(j2), nextPage)
 		}
 
 		// Fallback to anchors API if HTML yielded nothing
@@ -86,7 +85,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 				return nil, err
 			}
 			if len(anchors) == 0 {
-				log.Printf("[TELFED] anchors=0 at %s", next)
+				utils.Verbosef("[TELFED] anchors=0 at %s", next)
 				break
 			}
 			j2, np := t.extractJobsFromAnchors(ctx, anchors, baseURL)
@@ -94,11 +93,11 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			if nextPage == "" {
 				nextPage = np
 			}
-			log.Printf("[TELFED] page parsed via anchors jobs=%d next=%s", len(j2), nextPage)
+			utils.Verbosef("[TELFED] page parsed via anchors jobs=%d next=%s", len(j2), nextPage)
 		}
 
 		all = append(all, jobs...)
-		log.Printf("[TELFED] accumulated jobs=%d", len(all))
+		utils.Verbosef("[TELFED] accumulated jobs=%d", len(all))
 
 		// Find next page link
 		if nextPage == "" {
@@ -119,7 +118,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 
 	// Now visit each job URL to extract detailed info (title, description)
 	out := t.enrichJobsWithDetails(ctx, all)
-	log.Printf("[TELFED] enrich done total=%d", len(out))
+	utils.Verbosef("[TELFED] enrich done total=%d", len(out))
 	return out, nil
 }
 
@@ -221,13 +220,13 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 				if hrEmail == "" {
 					if m := extractEmailFromParagraph(text); m != "" {
 						hrEmail = m
-						log.Printf("[TELFED] found email in paragraph: %s", m)
+						utils.Verbosef("[TELFED] found email in paragraph: %s", m)
 					}
 				}
 				if hrPhone == "" {
 					if p := extractPhoneFromParagraph(text); p != "" {
 						hrPhone = p
-						log.Printf("[TELFED] found phone in paragraph: %s", p)
+						utils.Verbosef("[TELFED] found phone in paragraph: %s", p)
 					}
 				}
 			}
@@ -256,7 +255,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 						}
 						if email != "" {
 							hrEmail = email
-							log.Printf("[TELFED] found email via content anchor: %s", email)
+							utils.Verbosef("[TELFED] found email via content anchor: %s", email)
 						}
 					}
 				}
@@ -292,7 +291,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 					}
 					if email != "" {
 						hrEmail = email
-						log.Printf("[TELFED] found email via global anchor: %s", email)
+						utils.Verbosef("[TELFED] found email via global anchor: %s", email)
 					}
 				}
 			}
@@ -303,7 +302,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 		pageText := doc.Text()
 		if m := extractEmailFromParagraph(pageText); m != "" {
 			hrEmail = m
-			log.Printf("[TELFED] found email via page text: %s", m)
+			utils.Verbosef("[TELFED] found email via page text: %s", m)
 		}
 	}
 	if strings.TrimSpace(hrPhone) == "" {
@@ -311,7 +310,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 		pageText := doc.Text()
 		if p := extractPhoneFromParagraph(pageText); p != "" {
 			hrPhone = p
-			log.Printf("[TELFED] found phone via page text: %s", p)
+			utils.Verbosef("[TELFED] found phone via page text: %s", p)
 		}
 	}
 

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"flag"
 	"jf/internal/config"
 	"jf/internal/httpx"
 	"jf/internal/pool"
 	"jf/internal/repo"
 	"jf/internal/scanner"
 	"jf/internal/server"
+	"jf/internal/utils"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +22,16 @@ import (
 )
 
 func main() {
+	// Parse verbose flag before other initialization
+	verbose := flag.Bool("v", false, "Enable verbose logging")
+	flag.Parse()
+
+	// Set global verbose state
+	utils.SetVerbose(*verbose)
+	if *verbose {
+		log.Printf("[BOOT] verbose logging enabled")
+	}
+
 	// OS signals → context
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
