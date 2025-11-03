@@ -244,45 +244,73 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 		return true, true, "", "", "", ""
 	}
 
-	// Extract company name - get only direct text, not nested elements
-	companyName := strings.TrimSpace(doc.Find(".wpjb-top-header-title").First().Text())
-	// The selector might include nested UL text; extract just the first line if needed
-	if strings.Contains(companyName, "\n") {
-		lines := strings.SplitN(companyName, "\n", 2)
-		companyName = strings.TrimSpace(lines[0])
-	}
+	// Extract company name and posted date from .wpjb-top-header-title
+	// Format: "Lusha 9 active jobs (view) Published: October 27, 2025"
+	headerTitleText := strings.TrimSpace(doc.Find(".wpjb-top-header-title").First().Text())
+	var companyName, postedDate string
 
-	// Extract posted date
-	var postedDate string
-	// Try to find the published date in various places on the page
-	publishedElem := doc.Find(".wpjb-top-header-published").First()
-	if publishedElem.Length() > 0 {
-		// Look inside for <i> tag
-		postedText := strings.TrimSpace(publishedElem.Find("i").First().Text())
-		if postedText == "" {
-			// If no <i>, try direct text
-			postedText = strings.TrimSpace(publishedElem.Text())
-		}
-		if postedText != "" {
-			// Handle format like "Published: October 9, 2025"
-			parts := strings.SplitN(postedText, ":", 2)
-			if len(parts) == 2 {
-				postedDate = strings.TrimSpace(parts[1])
-			} else {
-				postedDate = postedText
+	if headerTitleText != "" {
+		// Extract date: look for "Published: " prefix
+		if idx := strings.Index(headerTitleText, "Published: "); idx != -1 {
+			postedDate = strings.TrimSpace(headerTitleText[idx+len("Published: "):])
+			// Extract company name from the part before "Published: "
+			beforePublished := strings.TrimSpace(headerTitleText[:idx])
+			// Extract first word (company name) - it's typically before numbers or "active jobs"
+			// Split by space and take the first token
+			parts := strings.Fields(beforePublished)
+			if len(parts) > 0 {
+				companyName = parts[0]
+			}
+		} else {
+			// Fallback: if no "Published:" found, try to extract company name from first word
+			parts := strings.Fields(headerTitleText)
+			if len(parts) > 0 {
+				companyName = parts[0]
 			}
 		}
 	}
 
-	// Extract description and location - add minimal extraction for now
-	var description, location string
+	// Extract description from .wpjb-text div
+	var description string
+	descriptionElem := doc.Find(".wpjb-text").First()
+	if descriptionElem.Length() > 0 {
+		description = strings.TrimSpace(utils.JoinWS(descriptionElem.Text()))
+	}
 
-	// Extract location from .wpjb-row-meta-location_stlv
-	locationRow := doc.Find(".wpjb-row-meta-location_stlv").First()
-	if locationRow.Length() > 0 {
-		locationCol := locationRow.Find(".wpjb-col-60").First()
-		if locationCol.Length() > 0 {
-			location = strings.TrimSpace(locationCol.Text())
+	// Extract location from .wpjb-grid-col.wpjb-col-35
+	// Format: "(Tel Aviv/ Ramat Gan)" or "Tel Aviv/ Ramat Gan"
+	// Note: The div might contain "Location of job" as a label; look for actual location text
+	var location string
+	locationElem := doc.Find(".wpjb-grid-col.wpjb-col-35").First()
+	if locationElem.Length() == 0 {
+		// Try alternative selector without wpjb prefix
+		locationElem = doc.Find("div.wpjb-col-35").First()
+	}
+	if locationElem.Length() > 0 {
+		locationText := strings.TrimSpace(locationElem.Text())
+		// Filter out "Location of job" label if present
+		locationText = strings.ReplaceAll(locationText, "Location of job", "")
+		locationText = strings.TrimSpace(locationText)
+		// Remove parentheses if present
+		locationText = strings.TrimPrefix(locationText, "(")
+		locationText = strings.TrimSuffix(locationText, ")")
+		location = strings.TrimSpace(locationText)
+		// If location is empty or just whitespace after filtering, try parent or siblings
+		if location == "" {
+			// Try to get text from parent row that contains location info
+			parentRow := locationElem.Parent()
+			if parentRow.Length() > 0 {
+				// Look for text that looks like a location (contains city names, slashes, etc.)
+				allText := strings.TrimSpace(utils.JoinWS(parentRow.Text()))
+				// Look for patterns like "(City/ City)" in the text
+				if strings.Contains(allText, "(") && strings.Contains(allText, "/") {
+					start := strings.Index(allText, "(")
+					end := strings.Index(allText[start:], ")")
+					if end != -1 {
+						location = strings.TrimSpace(allText[start+1 : start+end])
+					}
+				}
+			}
 		}
 	}
 
