@@ -3,6 +3,7 @@ package scrape
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/pool"
@@ -10,6 +11,7 @@ import (
 	"jf/internal/utils"
 	"log"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -136,6 +138,15 @@ func (t *TelfedScraper) enrichJobsWithDetails(ctx context.Context, jobs []models
 		group.Submit(func() error {
 			details := t.fetchJobDetails(ctx, job.URL)
 			enriched := job
+			// If no date was found (details empty signal), mark URL empty to skip later
+			if strings.TrimSpace(details.URL) == "" && strings.TrimSpace(details.DatePosted) == "" && strings.TrimSpace(details.Title) == "" {
+				mu.Lock()
+				// Empty the URL to signal skip downstream
+				job.URL = ""
+				results[i] = job
+				mu.Unlock()
+				return nil
+			}
 			if details.Title != "" {
 				enriched.Title = details.Title
 			}
@@ -150,6 +161,9 @@ func (t *TelfedScraper) enrichJobsWithDetails(ctx context.Context, jobs []models
 			}
 			if details.HRPhone != "" {
 				enriched.HRPhone = details.HRPhone
+			}
+			if details.DatePosted != "" {
+				enriched.DatePosted = details.DatePosted
 			}
 			mu.Lock()
 			results[i] = enriched
@@ -180,6 +194,18 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 	titleSel := doc.Find("h1.elementor-heading-title").First()
 	if titleSel.Length() > 0 {
 		title = strings.TrimSpace(utils.JoinWS(titleSel.Text()))
+	}
+
+	// Parse (Month YYYY) from title; if not found -> skip this job
+	titleDate := ""
+	if dateStr, trimmed, found := parseDateFromTitle(title); found {
+		title = trimmed
+		// carry date as string in models.ScrapedJob
+		// we'll return it in the final struct below
+		// continue extracting other fields
+		titleDate = dateStr
+	} else {
+		return models.ScrapedJob{}
 	}
 
 	// Extract description from elementor-widget-theme-post-content
@@ -293,9 +319,73 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 		Title:       title,
 		Description: description,
 		URL:         jobURL,
+		DatePosted:  strings.TrimSpace(titleDate),
 		HREmail:     strings.TrimSpace(hrEmail),
 		HRPhone:     strings.TrimSpace(hrPhone),
 	}
+}
+
+// parseDateFromTitle extracts a (Month YYYY) date from title and returns
+// date string in YYYY-MM-01, the title with the date removed, and found flag.
+func parseDateFromTitle(title string) (string, string, bool) {
+	if strings.TrimSpace(title) == "" {
+		return "", title, false
+	}
+
+	months := map[string]int{
+		"january": 1, "jan": 1,
+		"february": 2, "feb": 2,
+		"march": 3, "mar": 3,
+		"april": 4, "apr": 4,
+		"may":  5,
+		"june": 6, "jun": 6,
+		"july": 7, "jul": 7,
+		"august": 8, "aug": 8,
+		"september": 9, "sep": 9, "sept": 9,
+		"october": 10, "oct": 10,
+		"november": 11, "nov": 11,
+		"december": 12, "dec": 12,
+	}
+
+	// Regex to match optional parens/brackets, month name, year
+	// Examples: "(September 2025)", "Sep 2025", "September 2025)"
+	pattern := `(?i)[\(\[\s]*\b(january|february|march|april|may|june|july|august|september|sept|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\.?\s+(\d{4})\b[\)\]\s]*`
+	re := regexp.MustCompile(pattern)
+	matches := re.FindAllStringSubmatchIndex(title, -1)
+	if len(matches) == 0 {
+		return "", title, false
+	}
+	// Use the last match in case of multiple
+	last := matches[len(matches)-1]
+	fullStart, fullEnd := last[0], last[1]
+	monthStart, monthEnd := last[2], last[3]
+	yearStart, yearEnd := last[4], last[5]
+	monthName := strings.ToLower(strings.TrimSpace(title[monthStart:monthEnd]))
+	yearStr := strings.TrimSpace(title[yearStart:yearEnd])
+	monthNum, ok := months[monthName]
+	if !ok {
+		return "", title, false
+	}
+	year := 0
+	for _, r := range yearStr {
+		if r < '0' || r > '9' {
+			return "", title, false
+		}
+		year = year*10 + int(r-'0')
+	}
+	if year < 1900 || year > 2100 {
+		return "", title, false
+	}
+	dateStr := fmt.Sprintf("%04d-%02d-01", year, monthNum)
+
+	// Remove the matched substring and clean punctuation/whitespace
+	trimmed := strings.TrimSpace(strings.TrimSpace(title[:fullStart]) + " " + strings.TrimSpace(title[fullEnd:]))
+	// Remove leftover paired punctuation and redundant spaces/commas
+	trimmed = strings.TrimSpace(trimmed)
+	trimmed = strings.Trim(trimmed, "-—–,;:()[]{} ")
+	trimmed = utils.JoinWS(trimmed)
+
+	return dateStr, trimmed, true
 }
 
 // extractEmailFromParagraph extracts email from text, handling patterns like "send CV to: email@domain.com"
