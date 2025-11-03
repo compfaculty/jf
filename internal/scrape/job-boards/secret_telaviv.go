@@ -77,7 +77,7 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			out = append(out, models.ScrapedJob{
 				Title:       title,
 				URL:         href,
-				Description: title,
+				Description: "", // Will be extracted in fetchJobMetadata or fallback to title in board_source
 				Company:     s.company.Name,
 				DatePosted:  dateRaw,
 			})
@@ -99,7 +99,7 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		// 2) per-job inactive check + metadata extraction (lightweight GET + DOM probe)
 		filtered := make([]models.ScrapedJob, 0, len(items))
 		for _, j := range items {
-			ok, inactive, companyName, postedDate := s.fetchJobMetadata(ctx, j.URL)
+			ok, inactive, companyName, postedDate, description, location := s.fetchJobMetadata(ctx, j.URL)
 			if !ok || inactive {
 				if inactive {
 					continue
@@ -113,6 +113,12 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 				}
 				if postedDate != "" {
 					j.DatePosted = postedDate
+				}
+				if description != "" {
+					j.Description = description
+				}
+				if location != "" {
+					j.Location = location
 				}
 				filtered = append(filtered, j)
 			}
@@ -186,29 +192,29 @@ func (s *SecretTelAviv) fetchDoc(ctx context.Context, u string) (*goquery.Docume
 }
 
 // fetchJobMetadata GETs the job page, extracts metadata, and checks if inactive.
-// Returns (ok, inactive, companyName, postedDate).
-func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bool, bool, string, string) {
+// Returns (ok, inactive, companyName, postedDate, description, location).
+func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bool, bool, string, string, string, string) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, jobURL, nil)
 	resp, err := s.client.Do(req)
 	if err != nil || resp == nil {
-		return false, false, "", ""
+		return false, false, "", "", "", ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		// non-200 often means gone/redirect/etc. Treat as inconclusive; keep the job.
-		return true, false, "", ""
+		return true, false, "", "", "", ""
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return false, false, "", ""
+		return false, false, "", "", "", ""
 	}
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
-		return false, false, "", ""
+		return false, false, "", "", "", ""
 	}
 
 	// Look inside .post-content for the error box text
@@ -226,7 +232,7 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 	if errBox != "" {
 		// key phrase from the site:
 		if strings.Contains(errBox, "selected job is inactive or does not exist") {
-			return true, true, "", ""
+			return true, true, "", "", "", ""
 		}
 	}
 
@@ -235,7 +241,7 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 	hasJobStructure := doc.Find(".post-content .wpjb.wpjb-job.wpjb-page-single").Length() > 0
 	if !hasJobStructure {
 		// This is likely an inactive job (empty post-content, no job board structure)
-		return true, true, "", ""
+		return true, true, "", "", "", ""
 	}
 
 	// Extract company name - get only direct text, not nested elements
@@ -268,13 +274,25 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 		}
 	}
 
-	return true, false, companyName, postedDate
+	// Extract description and location - add minimal extraction for now
+	var description, location string
+
+	// Extract location from .wpjb-row-meta-location_stlv
+	locationRow := doc.Find(".wpjb-row-meta-location_stlv").First()
+	if locationRow.Length() > 0 {
+		locationCol := locationRow.Find(".wpjb-col-60").First()
+		if locationCol.Length() > 0 {
+			location = strings.TrimSpace(locationCol.Text())
+		}
+	}
+
+	return true, false, companyName, postedDate, description, location
 }
 
 // isInactive GETs the job page and detects the WPJB inactive message.
 // Returns (ok, inactive).
 func (s *SecretTelAviv) isInactive(ctx context.Context, jobURL string) (bool, bool) {
-	ok, inactive, _, _ := s.fetchJobMetadata(ctx, jobURL)
+	ok, inactive, _, _, _, _ := s.fetchJobMetadata(ctx, jobURL)
 	return ok, inactive
 }
 
@@ -695,6 +713,6 @@ func toInt(s string) int {
 // GetJobPosted extracts the posted date from a job URL.
 // Returns the posted date in a human-readable format, or empty string if not found.
 func (s *SecretTelAviv) GetJobPosted(ctx context.Context, jobURL string) (string, error) {
-	_, _, _, postedDate := s.fetchJobMetadata(ctx, jobURL)
+	_, _, _, postedDate, _, _ := s.fetchJobMetadata(ctx, jobURL)
 	return postedDate, nil
 }
