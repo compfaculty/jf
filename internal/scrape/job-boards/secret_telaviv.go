@@ -271,46 +271,35 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 	}
 
 	// Extract description from .wpjb-text div
+	// Only extract the REQUIREMENTS section if it exists, otherwise use full text
 	var description string
 	descriptionElem := doc.Find(".wpjb-text").First()
 	if descriptionElem.Length() > 0 {
-		description = strings.TrimSpace(utils.JoinWS(descriptionElem.Text()))
+		fullText := strings.TrimSpace(utils.JoinWS(descriptionElem.Text()))
+
+		// Check if REQUIREMENTS section exists (case-insensitive)
+		upperText := strings.ToUpper(fullText)
+		reqsIndex := strings.Index(upperText, "REQUIREMENTS")
+		if reqsIndex != -1 {
+			// Extract from REQUIREMENTS onwards
+			description = strings.TrimSpace(fullText[reqsIndex:])
+		} else {
+			// No REQUIREMENTS section found, use full text
+			description = fullText
+		}
 	}
 
-	// Extract location from .wpjb-grid-col.wpjb-col-35
-	// Format: "(Tel Aviv/ Ramat Gan)" or "Tel Aviv/ Ramat Gan"
-	// Note: The div might contain "Location of job" as a label; look for actual location text
+	// Extract location from .wpjb-row-meta-location_stlv .wpjb-col-60
+	// This selector directly targets the location value (e.g., "Tel Aviv/ Ramat Gan")
 	var location string
-	locationElem := doc.Find(".wpjb-grid-col.wpjb-col-35").First()
-	if locationElem.Length() == 0 {
-		// Try alternative selector without wpjb prefix
-		locationElem = doc.Find("div.wpjb-col-35").First()
-	}
+	locationElem := doc.Find(".wpjb-row-meta-location_stlv .wpjb-col-60").First()
 	if locationElem.Length() > 0 {
-		locationText := strings.TrimSpace(locationElem.Text())
-		// Filter out "Location of job" label if present
-		locationText = strings.ReplaceAll(locationText, "Location of job", "")
-		locationText = strings.TrimSpace(locationText)
-		// Remove parentheses if present
-		locationText = strings.TrimPrefix(locationText, "(")
-		locationText = strings.TrimSuffix(locationText, ")")
-		location = strings.TrimSpace(locationText)
-		// If location is empty or just whitespace after filtering, try parent or siblings
-		if location == "" {
-			// Try to get text from parent row that contains location info
-			parentRow := locationElem.Parent()
-			if parentRow.Length() > 0 {
-				// Look for text that looks like a location (contains city names, slashes, etc.)
-				allText := strings.TrimSpace(utils.JoinWS(parentRow.Text()))
-				// Look for patterns like "(City/ City)" in the text
-				if strings.Contains(allText, "(") && strings.Contains(allText, "/") {
-					start := strings.Index(allText, "(")
-					end := strings.Index(allText[start:], ")")
-					if end != -1 {
-						location = strings.TrimSpace(allText[start+1 : start+end])
-					}
-				}
-			}
+		location = strings.TrimSpace(utils.JoinWS(locationElem.Text()))
+	} else {
+		// Fallback: try alternative selector structure
+		locationElem = doc.Find(".wpjb-grid-row.wpjb-row-meta-location_stlv .wpjb-col-60").First()
+		if locationElem.Length() > 0 {
+			location = strings.TrimSpace(utils.JoinWS(locationElem.Text()))
 		}
 	}
 
