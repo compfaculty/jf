@@ -5,6 +5,7 @@ import (
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/scrape/common"
+	"jf/internal/utils"
 	"net/http"
 	"net/url"
 	"strings"
@@ -80,12 +81,12 @@ func (s *FortySeas) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 				return nil // best-effort: skip this one
 			}
 
-			title := common.NormWS(jdoc.Find("h1.heading-11").First().Text())
+			title := utils.NormWS(jdoc.Find("h1.heading-11").First().Text())
 			if title == "" {
-				title = common.NormWS(jdoc.Find("h1").First().Text())
+				title = utils.NormWS(jdoc.Find("h1").First().Text())
 				if title == "" {
 					if u, _ := url.Parse(jobURL); u != nil {
-						title = common.SlugToTitle(strings.TrimPrefix(u.Path, "/open-positions/"))
+						title = utils.SlugToTitle(strings.TrimPrefix(u.Path, "/open-positions/"))
 					}
 				}
 			}
@@ -114,7 +115,7 @@ func (s *FortySeas) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 
 	_ = g.Wait() // ignore per-item skips
 
-	return common.DedupeScraped(out), nil
+	return utils.DedupeScraped(out), nil
 }
 
 func (s *FortySeas) fetchDoc(ctx context.Context, u string) (*goquery.Document, error) {
@@ -196,7 +197,7 @@ func extractRequirementsCompact(doc *goquery.Document) string {
 			}
 			var items []string
 			ul.Find("li").Each(func(_ int, li *goquery.Selection) {
-				t := common.NormWS(li.Text())
+				t := utils.NormWS(li.Text())
 				if t != "" {
 					items = append(items, t)
 				}

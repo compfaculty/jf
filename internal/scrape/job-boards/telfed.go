@@ -7,6 +7,7 @@ import (
 	"jf/internal/models"
 	"jf/internal/pool"
 	"jf/internal/scrape/common"
+	"jf/internal/utils"
 	"log"
 	"net/url"
 	"strings"
@@ -78,7 +79,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			if err != nil {
 				// Best effort: return what we have so far
 				if len(all) > 0 {
-					return common.DedupeScraped(all), nil
+					return utils.DedupeScraped(all), nil
 				}
 				return nil, err
 			}
@@ -110,7 +111,7 @@ func (t *TelfedScraper) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		select {
 		case <-time.After(500 * time.Millisecond):
 		case <-ctx.Done():
-			return common.DedupeScraped(all), ctx.Err()
+			return utils.DedupeScraped(all), ctx.Err()
 		}
 	}
 
@@ -178,7 +179,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 	// Extract title from h1.elementor-heading-title
 	titleSel := doc.Find("h1.elementor-heading-title").First()
 	if titleSel.Length() > 0 {
-		title = strings.TrimSpace(common.JoinWS(titleSel.Text()))
+		title = strings.TrimSpace(utils.JoinWS(titleSel.Text()))
 	}
 
 	// Extract description from elementor-widget-theme-post-content
@@ -187,7 +188,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 		// Get all text content, preserving paragraph structure
 		parts := make([]string, 0)
 		contentSel.Find("p").Each(func(_ int, p *goquery.Selection) {
-			text := strings.TrimSpace(common.JoinWS(p.Text()))
+			text := strings.TrimSpace(utils.JoinWS(p.Text()))
 			if text != "" {
 				parts = append(parts, text)
 				// Check each paragraph for email and phone patterns - be aggressive, check all paragraphs
@@ -207,7 +208,7 @@ func (t *TelfedScraper) fetchJobDetails(ctx context.Context, jobURL string) mode
 		})
 		// If no paragraphs, get all text
 		if len(parts) == 0 {
-			description = strings.TrimSpace(common.JoinWS(contentSel.Text()))
+			description = strings.TrimSpace(utils.JoinWS(contentSel.Text()))
 		} else {
 			description = strings.Join(parts, "\n\n")
 		}
@@ -714,7 +715,7 @@ func (t *TelfedScraper) extractJobsFromAnchors(
 			}
 
 			// pagination detection
-			lowerTitle := strings.ToLower(strings.TrimSpace(common.JoinWS(a.Text)))
+			lowerTitle := strings.ToLower(strings.TrimSpace(utils.JoinWS(a.Text)))
 			lowerHref := strings.ToLower(href)
 			if strings.Contains(lowerTitle, "next") || strings.Contains(lowerTitle, "הבא") || strings.Contains(lowerHref, "page=") || strings.Contains(lowerHref, "/page/") {
 				mu.Lock()
@@ -730,7 +731,7 @@ func (t *TelfedScraper) extractJobsFromAnchors(
 				return nil
 			}
 
-			title := strings.TrimSpace(common.JoinWS(a.Text))
+			title := strings.TrimSpace(utils.JoinWS(a.Text))
 			if title == "" {
 				title = t.fallbackTitle(u)
 			}
@@ -770,7 +771,7 @@ func (t *TelfedScraper) findNextPageFromAnchors(anchors []pool.Anchor, currentUR
 			continue
 		}
 
-		text := strings.ToLower(strings.TrimSpace(common.JoinWS(a.Text)))
+		text := strings.ToLower(strings.TrimSpace(utils.JoinWS(a.Text)))
 		hrefLower := strings.ToLower(href)
 
 		// Check for "next" indicators
@@ -852,11 +853,11 @@ func (t *TelfedScraper) extractFromHTML(html string, current string, baseURL *ur
 			continue
 		}
 
-		title := strings.TrimSpace(common.JoinWS(a.Text()))
+		title := strings.TrimSpace(utils.JoinWS(a.Text()))
 		if title == "" {
 			parent := a.ParentsFiltered(".uael-post__content-wrap").First()
 			if parent.Length() > 0 {
-				if t2 := strings.TrimSpace(common.JoinWS(parent.Find("h3.uael-post__title a").First().Text())); t2 != "" {
+				if t2 := strings.TrimSpace(utils.JoinWS(parent.Find("h3.uael-post__title a").First().Text())); t2 != "" {
 					title = t2
 				}
 			}
@@ -877,7 +878,7 @@ func (t *TelfedScraper) extractFromHTML(html string, current string, baseURL *ur
 	var next string
 	if a := doc.Find("a[rel=next], a.next, a.pagination-next").First(); a.Length() > 0 {
 		if href, ok := a.Attr("href"); ok && strings.TrimSpace(href) != "" {
-			next = common.ResolveURLMust(current, href)
+			next = utils.ResolveURLMust(current, href)
 		}
 	}
 	if next == "" {
@@ -889,7 +890,7 @@ func (t *TelfedScraper) extractFromHTML(html string, current string, baseURL *ur
 			if href, ok := a.Attr("href"); ok {
 				hl := strings.ToLower(strings.TrimSpace(href))
 				if strings.Contains(hl, "/page/") || strings.Contains(hl, "page=") {
-					next = common.ResolveURLMust(current, href)
+					next = utils.ResolveURLMust(current, href)
 				}
 			}
 		})

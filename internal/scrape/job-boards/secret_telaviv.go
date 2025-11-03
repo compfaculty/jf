@@ -57,7 +57,7 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			if a.Length() == 0 {
 				return
 			}
-			title := strings.TrimSpace(common.JoinWS(a.Text()))
+			title := strings.TrimSpace(utils.JoinWS(a.Text()))
 			href, _ := a.Attr("href")
 			if title == "" || strings.TrimSpace(href) == "" {
 				return
@@ -121,7 +121,7 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 			select {
 			case <-time.After(120 * time.Millisecond):
 			case <-ctx.Done():
-				return common.DedupeScraped(append(all, filtered...)), ctx.Err()
+				return utils.DedupeScraped(append(all, filtered...)), ctx.Err()
 			}
 		}
 
@@ -131,12 +131,12 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		select {
 		case <-time.After(250 * time.Millisecond):
 		case <-ctx.Done():
-			return common.DedupeScraped(all), ctx.Err()
+			return utils.DedupeScraped(all), ctx.Err()
 		}
 		next = findNext(doc, next)
 	}
 
-	return common.DedupeScraped(all), nil
+	return utils.DedupeScraped(all), nil
 }
 
 // findNext returns the absolute URL of the next page or "" if none.
@@ -152,7 +152,7 @@ func findNext(doc *goquery.Document, base string) string {
 	if strings.HasPrefix(href, "http") {
 		return href
 	}
-	return common.ResolveURLMust(base, href)
+	return utils.ResolveURLMust(base, href)
 }
 
 // fetchDoc gets the URL and returns a parsed document or an error.
@@ -228,6 +228,14 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 		if strings.Contains(errBox, "selected job is inactive or does not exist") {
 			return true, true, "", ""
 		}
+	}
+
+	// Check if the page has the job board structure (wpjb-page-single is required for active jobs)
+	// Inactive jobs like bluespine-automation-engineer have empty post-content without this div
+	hasJobStructure := doc.Find(".post-content .wpjb.wpjb-job.wpjb-page-single").Length() > 0
+	if !hasJobStructure {
+		// This is likely an inactive job (empty post-content, no job board structure)
+		return true, true, "", ""
 	}
 
 	// Extract company name - get only direct text, not nested elements

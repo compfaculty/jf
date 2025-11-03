@@ -5,6 +5,7 @@ import (
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/scrape/common"
+	"jf/internal/utils"
 	"net/http"
 	"net/url"
 	"strings"
@@ -82,7 +83,7 @@ func (s *AudioCodes) GetJobs(ctx context.Context, _ *config.Config) ([]models.Sc
 			}
 
 			// Title from: <div class="share-component"><h1>...</h1>
-			title := common.NormWS(jdoc.Find(".share-component h1").First().Text())
+			title := utils.NormWS(jdoc.Find(".share-component h1").First().Text())
 			if title == "" {
 				title = "Untitled"
 			}
@@ -141,7 +142,7 @@ func (s *AudioCodes) GetJobs(ctx context.Context, _ *config.Config) ([]models.Sc
 	}
 
 FINISH:
-	return common.DedupeScraped(out), nil
+	return utils.DedupeScraped(out), nil
 }
 
 func (s *AudioCodes) fetchDoc(ctx context.Context, u string) (*goquery.Document, error) {
@@ -225,7 +226,7 @@ func extractAudioCodesRequirements(doc *goquery.Document) string {
 			ul := p.NextAllFiltered("ul").First()
 			if ul.Length() > 0 {
 				ul.Find("li").Each(func(_ int, li *goquery.Selection) {
-					t := common.NormWS(li.Text())
+					t := utils.NormWS(li.Text())
 					if t != "" {
 						items = append(items, t)
 					}
@@ -233,7 +234,7 @@ func extractAudioCodesRequirements(doc *goquery.Document) string {
 			} else {
 				// Otherwise consume subsequent non-empty <p> siblings
 				p.NextAllFiltered("p").Each(func(_ int, sib *goquery.Selection) {
-					t := common.NormWS(sib.Text())
+					t := utils.NormWS(sib.Text())
 					if t != "" {
 						items = append(items, t)
 					}

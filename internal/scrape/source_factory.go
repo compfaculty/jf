@@ -3,6 +3,7 @@ package scrape
 import (
 	"jf/internal/feed"
 	"jf/internal/models"
+	commonpkg "jf/internal/scrape/common"
 	"strings"
 
 	"github.com/alitto/pond"
@@ -14,8 +15,8 @@ import (
 func NewJobSource(
 	c models.Company,
 	agg *models.Aggregator,
-	client Doer,
-	browser Browser,
+	client commonpkg.Doer,
+	browser commonpkg.Browser,
 	wp *pond.WorkerPool,
 	parser *feed.Parser,
 ) JobSource {
@@ -47,7 +48,7 @@ func NewJobSource(
 }
 
 // createCompanySource creates a CompanySource from a company.
-func createCompanySource(c models.Company, client Doer, browser Browser, wp *pond.WorkerPool) *CompanySource {
+func createCompanySource(c models.Company, client commonpkg.Doer, browser commonpkg.Browser, wp *pond.WorkerPool) *CompanySource {
 	scraper := NewJobScraper(c, client, browser, wp)
 	return NewCompanySource(c, scraper, client, browser, wp)
 }

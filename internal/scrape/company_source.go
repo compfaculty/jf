@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"jf/internal/scrape/common"
+	"jf/internal/utils"
 	"net/http"
 	"regexp"
 	"strings"
@@ -167,7 +168,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 		titleSel = doc.Find("title").First()
 	}
 	if titleSel.Length() > 0 {
-		metadata.Title = strings.TrimSpace(common.JoinWS(titleSel.Text()))
+		metadata.Title = strings.TrimSpace(utils.JoinWS(titleSel.Text()))
 	}
 
 	// Try to find description from common selectors
@@ -181,7 +182,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 	}
 	for _, sel := range descSelectors {
 		if elem := doc.Find(sel).First(); elem.Length() > 0 {
-			text := strings.TrimSpace(common.JoinWS(elem.Text()))
+			text := strings.TrimSpace(utils.JoinWS(elem.Text()))
 			if len(text) > 100 { // Only use if substantial content
 				metadata.Description = text
 				break
@@ -197,7 +198,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 	}
 	for _, sel := range locationSelectors {
 		if elem := doc.Find(sel).First(); elem.Length() > 0 {
-			metadata.Location = strings.TrimSpace(common.JoinWS(elem.Text()))
+			metadata.Location = strings.TrimSpace(utils.JoinWS(elem.Text()))
 			if metadata.Location != "" {
 				break
 			}
@@ -219,7 +220,7 @@ func (c *CompanySource) parseJobDocument(doc *goquery.Document, jobURL string) (
 		if elem := doc.Find(sel).First(); elem.Length() > 0 {
 			dateStr := elem.AttrOr("datetime", "")
 			if dateStr == "" {
-				dateStr = strings.TrimSpace(common.JoinWS(elem.Text()))
+				dateStr = strings.TrimSpace(utils.JoinWS(elem.Text()))
 			}
 			if dateStr != "" {
 				if t, err := time.Parse(time.RFC3339, dateStr); err == nil {

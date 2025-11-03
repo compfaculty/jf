@@ -298,7 +298,7 @@ func titleFromComeetURL(raw string) string {
 		if s == "" || looksLikeComeetCode(s) {
 			continue
 		}
-		return strings.TrimSpace(common.SlugToTitle(s)) // your helper
+		return strings.TrimSpace(util.SlugToTitle(s))
 	}
 	return strings.TrimSpace(u.Hostname())
 }

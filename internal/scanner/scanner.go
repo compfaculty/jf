@@ -15,6 +15,7 @@ import (
 	"jf/internal/pool"
 	"jf/internal/repo"
 	"jf/internal/scrape"
+	commonpkg "jf/internal/scrape/common"
 	"jf/internal/utils"
 
 	"github.com/alitto/pond"
@@ -23,7 +24,7 @@ import (
 type Scanner struct {
 	repo repo.Repo
 	cfg  *config.Config
-	http scrape.Doer
+	http commonpkg.Doer
 	bp   *pool.BrowserPool
 	wp   *pond.WorkerPool
 
@@ -43,7 +44,7 @@ type ScanState struct {
 
 // NewScanner wires both pools. If you don’t need one of them yet, you can pass nil;
 // it’ll still work (we gate usage accordingly).
-func NewScanner(r repo.Repo, cfg *config.Config, httpDoer scrape.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Scanner {
+func NewScanner(r repo.Repo, cfg *config.Config, httpDoer commonpkg.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Scanner {
 	return &Scanner{repo: r, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
 }
 

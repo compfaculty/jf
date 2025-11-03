@@ -24,6 +24,7 @@ import (
 	"jf/internal/repo"
 	"jf/internal/scanner"
 	"jf/internal/scrape"
+	commonpkg "jf/internal/scrape/common"
 	"jf/internal/utils"
 )
 
@@ -174,7 +175,7 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, fm *feed.Monitor, cfg *config.C
 
 		// Create feed parser for RSS sources (use default HTTP client)
 		feedParser := feed.NewParser(http.DefaultClient)
-		var bp scrape.Browser // nil - browser pool not available in router, fallback will work
+		var bp commonpkg.Browser // nil - browser pool not available in router, fallback will work
 
 		var mu sync.Mutex
 		for i := range jobs {

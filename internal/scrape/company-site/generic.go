@@ -8,6 +8,7 @@ import (
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/pool"
+	"jf/internal/utils"
 	"jf/internal/validators"
 	"net/http"
 	"net/url"
@@ -114,7 +115,7 @@ func (g *GenericScraper) extractFromAnchorsParallel(
 			}
 
 			// Title: prefer text, fallback to last path segment
-			title := g.pickTitle(strings.TrimSpace(common.JoinWS(txt)), u)
+			title := g.pickTitle(strings.TrimSpace(utils.JoinWS(txt)), u)
 
 			combined := title + " " + u.String()
 			ok, absCanon := validators.MustJobLinkURL(combined, href, base, good, bad, thr, hardExcl)
@@ -229,7 +230,7 @@ func (g *GenericScraper) extractFromHTML(root string, r io.ReadCloser, cfg *conf
 		}
 		seen[href] = struct{}{}
 
-		text := strings.TrimSpace(common.JoinWS(a.Text()))
+		text := strings.TrimSpace(utils.JoinWS(a.Text()))
 
 		// IMPORTANT: produce a canonical ABSOLUTE URL (fixes localhost-relative links in GUI)
 		ok2, absCanon := validators.MustJobLinkURL(text, href, base, good, bad, thr, hardExcl)

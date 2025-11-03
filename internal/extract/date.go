@@ -2,16 +2,17 @@ package extract
 
 import (
 	"context"
-	_ "jf/internal/pool"
 	"net/http"
 	"strings"
 	"time"
+
+	"jf/internal/scrape/common"
 )
 
 // DateExtractor is a generic interface for extracting job posted dates from job URLs.
 // Each job-board can implement its own extractor with site-specific logic.
 type DateExtractor interface {
-	GetJobPostedDate(ctx context.Context, jobURL string, respHeaders http.Header, browser Browser) (postedDate time.Time, found bool, err error)
+	GetJobPostedDate(ctx context.Context, jobURL string, respHeaders http.Header, browser common.Browser) (postedDate time.Time, found bool, err error)
 }
 
 // GenericDateExtractor provides default extraction logic.
@@ -24,7 +25,7 @@ func NewGenericDateExtractor() *GenericDateExtractor {
 
 // GetJobPostedDate implements DateExtractor interface.
 // Strategy: 1) Check HTTP headers, 2) Parse page metadata, 3) Parse page content.
-func (g *GenericDateExtractor) GetJobPostedDate(ctx context.Context, jobURL string, respHeaders http.Header, browser Browser) (time.Time, bool, error) {
+func (g *GenericDateExtractor) GetJobPostedDate(ctx context.Context, jobURL string, respHeaders http.Header, browser common.Browser) (time.Time, bool, error) {
 	// Strategy 1: Check HTTP response headers first (fastest, no page load needed)
 	if respHeaders != nil {
 		if date, found := ParseDateFromHeaders(respHeaders); found {
@@ -84,7 +85,7 @@ func ParseDateFromHeaders(headers http.Header) (time.Time, bool) {
 
 // extractDateFromPage attempts to extract posted date from page metadata.
 // Uses browser to fetch and parse HTML.
-func extractDateFromPage(ctx context.Context, jobURL string, browser Browser) (time.Time, bool, error) {
+func extractDateFromPage(ctx context.Context, jobURL string, browser common.Browser) (time.Time, bool, error) {
 	// Try fetching common meta selectors for dates
 	selectors := []string{
 		`meta[property="article:published_time"]`,
@@ -143,76 +144,7 @@ func extractDateFromMetaTag(html string) (time.Time, bool) {
 }
 
 // GetExtractorForPortal returns a portal-specific date extractor or the generic one.
-func GetDateExtractorForPortal(host string) DateExtractor {
-	host = strings.ToLower(host)
-
-	switch {
-	case strings.Contains(host, "lever.co"):
-		return NewLeverDateExtractor()
-	case strings.Contains(host, "workable.com"):
-		return NewWorkableDateExtractor()
-	case strings.Contains(host, "greenhouse.io"):
-		return NewGreenhouseDateExtractor()
-	default:
-		return NewGenericDateExtractor()
-	}
-}
-
-// Portal-specific date extractors (implementations can be added incrementally)
-
-type LeverDateExtractor struct{}
-
-func NewLeverDateExtractor() *LeverDateExtractor {
-	return &LeverDateExtractor{}
-}
-
-func (l *LeverDateExtractor) GetJobPostedDate(ctx context.Context, jobURL string, respHeaders http.Header, browser Browser) (time.Time, bool, error) {
-	// Lever-specific logic: check headers first, then page
-	if respHeaders != nil {
-		if date, found := ParseDateFromHeaders(respHeaders); found {
-			return date, true, nil
-		}
-	}
-
-	// Fallback to generic
-	gen := NewGenericDateExtractor()
-	return gen.GetJobPostedDate(ctx, jobURL, respHeaders, browser)
-}
-
-type WorkableDateExtractor struct{}
-
-func NewWorkableDateExtractor() *WorkableDateExtractor {
-	return &WorkableDateExtractor{}
-}
-
-func (w *WorkableDateExtractor) GetJobPostedDate(ctx context.Context, jobURL string, respHeaders http.Header, browser Browser) (time.Time, bool, error) {
-	// Workable-specific logic
-	if respHeaders != nil {
-		if date, found := ParseDateFromHeaders(respHeaders); found {
-			return date, true, nil
-		}
-	}
-
-	// Fallback to generic
-	gen := NewGenericDateExtractor()
-	return gen.GetJobPostedDate(ctx, jobURL, respHeaders, browser)
-}
-
-type GreenhouseDateExtractor struct{}
-
-func NewGreenhouseDateExtractor() *GreenhouseDateExtractor {
-	return &GreenhouseDateExtractor{}
-}
-
-func (g *GreenhouseDateExtractor) GetJobPostedDate(ctx context.Context, jobURL string, respHeaders http.Header, browser Browser) (time.Time, bool, error) {
-	// Greenhouse-specific logic
-	if respHeaders != nil {
-		if date, found := ParseDateFromHeaders(respHeaders); found {
-			return date, true, nil
-		}
-	}
-
-	// Fallback to generic
-	gen := NewGenericDateExtractor()
-	return gen.GetJobPostedDate(ctx, jobURL, respHeaders, browser)
-}
+// GetDateExtractorForPortal previously selected portal-specific extractors.
+// Since portal-specific implementations delegated to the generic logic,
+// we simplify by always returning the generic extractor.
+func GetDateExtractorForPortal(_ string) DateExtractor { return NewGenericDateExtractor() }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"jf/internal/utils"
 	"net/smtp"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/strutil"
 
 	"github.com/jordan-wright/email"
 )
@@ -85,7 +85,7 @@ func BuildSMTPMailer(mc *config.MailConfig) *SMTPMailer {
 
 // ChooseResume returns the best CV for a job title using configured profiles.
 func ChooseResume(title string, mc *config.MailConfig) (cvPath, matchedProfile string) {
-	tokens := toSet(utils.Tokens(title)) // uses your existing tokenization
+	tokens := toSet(strutil.Tokens(title))
 	titleLC := strings.ToLower(strings.TrimSpace(title))
 
 	bestScore := -1

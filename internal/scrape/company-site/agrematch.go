@@ -10,6 +10,7 @@ import (
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/scrape/common"
+	"jf/internal/utils"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -43,7 +44,7 @@ func (s *Agrematch) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 
 	// Every job block on the page (hidden or active panes are still in DOM on Webflow pages)
 	doc.Find("div.job_pos_div_f").Each(func(_ int, blk *goquery.Selection) {
-		title := common.NormWS(blk.Find("h2.open_pos_title.sub_pos").First().Text())
+		title := utils.NormWS(blk.Find("h2.open_pos_title.sub_pos").First().Text())
 		if title == "" {
 			return
 		}
@@ -58,7 +59,7 @@ func (s *Agrematch) GetJobs(ctx context.Context, _ *config.Config) ([]models.Scr
 		baseURL, _ := url.Parse(start)
 		jobURL := start
 		if baseURL != nil {
-			sl := common.Slug(title)
+			sl := utils.Slug(title)
 			u := *baseURL
 			q := u.Query()
 			q.Set("_jf", sl) // synthetic, unique per job; NOT removed by canonicalizeURL
@@ -108,13 +109,13 @@ func extractMergedBulletsAgrematch(jobBlk *goquery.Selection) string {
 	var respItems, reqItems []string
 
 	jobBlk.Find("div.pos_points").Each(func(_ int, pp *goquery.Selection) {
-		heading := strings.ToLower(common.NormWS(pp.Find("h3.career-h3").First().Text()))
+		heading := strings.ToLower(utils.NormWS(pp.Find("h3.career-h3").First().Text()))
 		if heading == "" {
 			return
 		}
 		var items []string
 		pp.Find("div.career-point-wrap > div").Each(func(_ int, d *goquery.Selection) {
-			t := common.NormWS(d.Text()) // collapses <br/> into spaces
+			t := utils.NormWS(d.Text()) // collapses <br/> into spaces
 			if t != "" {
 				items = append(items, t)
 			}

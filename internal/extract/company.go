@@ -2,23 +2,18 @@ package extract
 
 import (
 	"context"
-	"jf/internal/pool"
+	"jf/internal/scrape/common"
 	"net/url"
 	"strings"
 	"time"
 )
 
-// Browser is the minimal ability we need from a browser pool.
-// Matches the interface from internal/scrape/factory.go
-type Browser interface {
-	FetchHTML(ctx context.Context, urlStr, selector string, wait time.Duration) (string, error)
-	FetchAnchors(ctx context.Context, urlStr string, wait time.Duration) ([]pool.Anchor, error)
-}
+// Use shared Browser interface from internal/scrape/common.
 
 // CompanyExtractor is a generic interface for extracting company names from job URLs.
 // Each job-board can implement its own extractor with site-specific logic.
 type CompanyExtractor interface {
-	FindCompanyName(ctx context.Context, jobURL string, browser Browser) (companyName string, err error)
+	FindCompanyName(ctx context.Context, jobURL string, browser common.Browser) (companyName string, err error)
 }
 
 // GenericCompanyExtractor provides default extraction logic.
@@ -31,7 +26,7 @@ func NewGenericCompanyExtractor() *GenericCompanyExtractor {
 
 // FindCompanyName implements CompanyExtractor interface.
 // Tries multiple strategies: URL parsing, HTTP headers, then page scraping.
-func (g *GenericCompanyExtractor) FindCompanyName(ctx context.Context, jobURL string, browser Browser) (string, error) {
+func (g *GenericCompanyExtractor) FindCompanyName(ctx context.Context, jobURL string, browser common.Browser) (string, error) {
 	if jobURL == "" {
 		return "", nil
 	}
@@ -85,7 +80,7 @@ func extractCompanyFromURL(u *url.URL) string {
 
 // extractCompanyFromPage attempts to extract company name from page metadata.
 // Uses browser to fetch and parse HTML.
-func extractCompanyFromPage(ctx context.Context, jobURL string, browser Browser) (string, error) {
+func extractCompanyFromPage(ctx context.Context, jobURL string, browser common.Browser) (string, error) {
 	// Try fetching common meta selectors
 	selectors := []string{
 		`meta[property="og:site_name"]`,
@@ -180,7 +175,7 @@ func GetExtractorForPortal(host string) CompanyExtractor {
 
 // ExtractCompanyFromJob extracts company name and portal info from a job URL.
 // Returns: companyName, applyURL, isPortal, error
-func ExtractCompanyFromJob(ctx context.Context, jobURL string, browser Browser) (companyName, applyURL string, isPortal bool, err error) {
+func ExtractCompanyFromJob(ctx context.Context, jobURL string, browser common.Browser) (companyName, applyURL string, isPortal bool, err error) {
 	if jobURL == "" {
 		return "", "", false, nil
 	}
@@ -216,7 +211,7 @@ func NewLeverExtractor() *LeverExtractor {
 	return &LeverExtractor{}
 }
 
-func (l *LeverExtractor) FindCompanyName(ctx context.Context, jobURL string, browser Browser) (string, error) {
+func (l *LeverExtractor) FindCompanyName(ctx context.Context, jobURL string, browser common.Browser) (string, error) {
 	u, err := url.Parse(jobURL)
 	if err != nil {
 		return "", err
@@ -240,7 +235,7 @@ func NewWorkableExtractor() *WorkableExtractor {
 	return &WorkableExtractor{}
 }
 
-func (w *WorkableExtractor) FindCompanyName(ctx context.Context, jobURL string, browser Browser) (string, error) {
+func (w *WorkableExtractor) FindCompanyName(ctx context.Context, jobURL string, browser common.Browser) (string, error) {
 	u, err := url.Parse(jobURL)
 	if err != nil {
 		return "", err
@@ -267,7 +262,7 @@ func NewGreenhouseExtractor() *GreenhouseExtractor {
 	return &GreenhouseExtractor{}
 }
 
-func (g *GreenhouseExtractor) FindCompanyName(ctx context.Context, jobURL string, browser Browser) (string, error) {
+func (g *GreenhouseExtractor) FindCompanyName(ctx context.Context, jobURL string, browser common.Browser) (string, error) {
 	u, err := url.Parse(jobURL)
 	if err != nil {
 		return "", err
