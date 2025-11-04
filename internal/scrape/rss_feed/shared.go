@@ -33,7 +33,7 @@ func FetchJobPage(ctx context.Context, jobURL string, browser common.Browser) (*
 		if err != nil {
 			return nil, fmt.Errorf("create request: %w", err)
 		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0")
 
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(req)

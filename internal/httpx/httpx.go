@@ -16,9 +16,7 @@ import (
 )
 
 // DefaultUserAgent – realistic desktop UA (can override via config/env).
-const DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-	"AppleWebKit/537.36 (KHTML, like Gecko) " +
-	"Chrome/139.0.0.0 Safari/537.36"
+const DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0"
 
 // HttpClientConfig controls behavior of the Client.
 type HttpClientConfig struct {

@@ -65,7 +65,7 @@ func (p *Parser) ParseFeed(ctx context.Context, url string) ([]RSSItem, error) {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "JobFinder/1.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0")
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
