@@ -55,6 +55,7 @@ func (b *BoardSource) FindJobs(ctx context.Context, cfg *config.Config) ([]JobLi
 			"hr_email":    sj.HREmail,
 			"hr_phone":    sj.HRPhone,
 			"date_posted": sj.DatePosted,
+			"company":     sj.Company, // Company name extracted by scraper (e.g., from Secret Tel Aviv job pages)
 		}
 
 		listings = append(listings, JobListing{
@@ -137,8 +138,14 @@ func (b *BoardSource) ParseJobMetadata(ctx context.Context, listing JobListing) 
 				metadata.ApplyViaPortal = isPortal
 			}
 		} else {
-			// Job is on the board itself - use board name as company
-			metadata.Company = b.aggregator.Name
+			// Job is on the board itself - use company name from scraper if available
+			// (e.g., Secret Tel Aviv extracts company name from each job page)
+			if companyName := listing.RawData["company"]; companyName != "" {
+				metadata.Company = companyName
+			} else {
+				// Fallback to aggregator name if no company extracted
+				metadata.Company = b.aggregator.Name
+			}
 			// Secret Tel Aviv supports direct apply, so ApplyURL is the same as job URL
 			// We'll determine this in ApplyJob method
 		}

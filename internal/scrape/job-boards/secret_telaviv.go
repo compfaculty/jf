@@ -101,19 +101,41 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 	for next != "" {
 		doc, err := s.fetchDoc(ctx, next)
 		if err != nil {
-			break // best-effort: stop on failure
+			// Check if this is a 429 error - if so, log it and break
+			// The httpx client should have already retried, but if it still fails,
+			// we should stop to avoid hammering the server
+			if appErr, ok := err.(*utils.AppError); ok {
+				if statusCode, exists := appErr.Context["status_code"]; exists {
+					if code, ok := statusCode.(int); ok && code == http.StatusTooManyRequests {
+						utils.Verbosef("[SecretTelAviv] Rate limited (429) on %s, stopping pagination. Error: %v", next, err)
+						// Return what we have so far rather than failing completely
+						if len(all) > 0 {
+							return utils.DedupeScraped(all), nil
+						}
+						// If we got 429 on the first page, return error so scanner can log it
+						return nil, fmt.Errorf("rate limited (429) on first page: %w", err)
+					}
+				}
+			}
+			// For other errors, log and break (best-effort: stop on failure)
+			utils.Verbosef("[SecretTelAviv] Error fetching page %s: %v, stopping pagination", next, err)
+			break
 		}
 		items := parsePage(doc)
+		utils.Verbosef("[SecretTelAviv] Parsed %d items from page %s", len(items), next)
 
 		// 2) per-job inactive check + metadata extraction (lightweight GET + DOM probe)
 		filtered := make([]models.ScrapedJob, 0, len(items))
-		for _, j := range items {
+		for i, j := range items {
+			utils.Verbosef("[SecretTelAviv] Fetching metadata for job %d/%d: %s", i+1, len(items), j.URL)
 			ok, inactive, companyName, postedDate, description, location := s.fetchJobMetadata(ctx, j.URL)
 			if !ok || inactive {
 				if inactive {
+					utils.Verbosef("[SecretTelAviv] Job %s is inactive, skipping", j.URL)
 					continue
 				}
 				// If fetch failed, still include the job but keep original metadata
+				utils.Verbosef("[SecretTelAviv] Metadata fetch failed for %s, including job anyway", j.URL)
 				filtered = append(filtered, j)
 			} else {
 				// Update job with extracted metadata
@@ -141,16 +163,22 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		}
 
 		all = append(all, filtered...)
+		utils.Verbosef("[SecretTelAviv] After processing page, total jobs so far: %d", len(all))
 
 		// polite tiny delay to avoid hammering
 		select {
 		case <-time.After(250 * time.Millisecond):
 		case <-ctx.Done():
+			utils.Verbosef("[SecretTelAviv] Context cancelled, returning %d jobs", len(all))
 			return utils.DedupeScraped(all), ctx.Err()
 		}
 		next = findNext(doc, next)
+		if next != "" {
+			utils.Verbosef("[SecretTelAviv] Next page: %s", next)
+		}
 	}
 
+	utils.Verbosef("[SecretTelAviv] Finished pagination, returning %d total jobs", len(all))
 	return utils.DedupeScraped(all), nil
 }
 
@@ -188,8 +216,19 @@ func (s *SecretTelAviv) fetchDoc(ctx context.Context, u string) (*goquery.Docume
 
 	defer utils.SafeClose(resp.Body, "response body")
 
+	// Handle non-200 status codes, with special handling for 429
 	if resp.StatusCode != http.StatusOK {
-		return nil, utils.NewNetworkError(fmt.Sprintf("HTTP %d", resp.StatusCode), nil)
+		errMsg := fmt.Sprintf("HTTP %d for %s", resp.StatusCode, u)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			// Check for Retry-After header
+			retryAfter := resp.Header.Get("Retry-After")
+			if retryAfter != "" {
+				errMsg = fmt.Sprintf("HTTP 429 (Too Many Requests) - Retry-After: %s for %s", retryAfter, u)
+			} else {
+				errMsg = fmt.Sprintf("HTTP 429 (Too Many Requests) for %s", u)
+			}
+		}
+		return nil, utils.NewNetworkError(errMsg, nil).WithContext("status_code", resp.StatusCode).WithContext("url", u)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
@@ -215,6 +254,10 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 
 	if resp.StatusCode != http.StatusOK {
 		// non-200 often means gone/redirect/etc. Treat as inconclusive; keep the job.
+		// For 429 specifically, we still want to include the job even though we couldn't fetch metadata
+		if resp.StatusCode == http.StatusTooManyRequests {
+			utils.Verbosef("[SecretTelAviv] Rate limited (429) when fetching metadata for %s, will include job without metadata", jobURL)
+		}
 		return true, false, "", "", "", ""
 	}
 	body, err := io.ReadAll(resp.Body)

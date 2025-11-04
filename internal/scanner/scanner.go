@@ -202,7 +202,15 @@ func (m *Scanner) processSource(
 		// Step 1: FindJobs - discover job listings
 		listings, err := source.FindJobs(cctx, m.cfg)
 		if err != nil && cctx.Err() == nil {
-			m.appendWarn(fmt.Sprintf("%s: FindJobs error: %v", name, err))
+			errMsg := fmt.Sprintf("%s: FindJobs error: %v", name, err)
+			// Check if this is a rate limiting error (429)
+			if strings.Contains(strings.ToLower(err.Error()), "429") ||
+				strings.Contains(strings.ToLower(err.Error()), "rate limit") ||
+				strings.Contains(strings.ToLower(err.Error()), "too many requests") {
+				errMsg = fmt.Sprintf("%s: RATE LIMITED (429) - FindJobs failed: %v", name, err)
+				log.Printf("[SCAN] %s", errMsg)
+			}
+			m.appendWarn(errMsg)
 		} else {
 			utils.Verbosef("Scanner: FindJobs found %d listings for %s", len(listings), name)
 		}
@@ -229,7 +237,8 @@ func (m *Scanner) processSource(
 
 			// Determine company ID
 			var companyID string
-			if company != nil {
+			if company != nil && company.ID != "" {
+				// Use company ID if it's already set (for regular companies)
 				companyID = company.ID
 			} else if aggregator != nil {
 				// For aggregators, we need to get/create company
@@ -240,8 +249,12 @@ func (m *Scanner) processSource(
 						CareersURL: metadata.URL, // Use job URL as fallback
 						Active:     true,
 					}
-					if err := m.repo.UpsertCompanyByName(cctx, c); err == nil {
+					if err := m.repo.UpsertCompanyByName(cctx, c); err != nil {
+						utils.Verbosef("Scanner: failed to upsert company %q for job %q: %v", metadata.Company, metadata.URL, err)
+						m.appendWarn(fmt.Sprintf("%s: failed to upsert company %q: %v", name, metadata.Company, err))
+					} else {
 						companyID = c.ID
+						utils.Verbosef("Scanner: resolved company %q -> ID %s", metadata.Company, companyID)
 					}
 				} else {
 					// Use aggregator's company entry
@@ -250,13 +263,18 @@ func (m *Scanner) processSource(
 						CareersURL: aggregator.SourceURL,
 						Active:     aggregator.Active,
 					}
-					if err := m.repo.UpsertCompanyByName(cctx, c); err == nil {
+					if err := m.repo.UpsertCompanyByName(cctx, c); err != nil {
+						utils.Verbosef("Scanner: failed to upsert aggregator company %q: %v", aggregator.Name, err)
+						m.appendWarn(fmt.Sprintf("%s: failed to upsert aggregator company %q: %v", name, aggregator.Name, err))
+					} else {
 						companyID = c.ID
+						utils.Verbosef("Scanner: resolved aggregator company %q -> ID %s", aggregator.Name, companyID)
 					}
 				}
 			}
 
 			if companyID == "" {
+				utils.Verbosef("Scanner: skipping job %q from %s: no company ID resolved", metadata.URL, name)
 				continue // Skip if we can't get a company ID
 			}
 
@@ -279,13 +297,17 @@ func (m *Scanner) processSource(
 				j.AggregatorName = aggregator.Name
 			}
 
+			utils.Verbosef("Scanner: attempting to upsert job: title=%q url=%q company_id=%s aggregator=%q",
+				j.Title, j.URL, j.CompanyID, j.AggregatorName)
 			if err := m.repo.UpsertJob(cctx, j); err != nil {
+				utils.Verbosef("Scanner: upsert failed for job %q: %v", j.URL, err)
 				m.appendWarn(fmt.Sprintf("%s: upsert %q failed: %v", name, j.URL, err))
 				utils.PutJob(j)
 				continue
 			}
 
-			utils.Verbosef("Scanner: upserted job: title=%q url=%q company_id=%s", j.Title, j.URL, j.CompanyID)
+			utils.Verbosef("Scanner: successfully upserted job: title=%q url=%q company_id=%s aggregator=%q",
+				j.Title, j.URL, j.CompanyID, j.AggregatorName)
 			utils.PutJob(j)
 			newN++
 		}
