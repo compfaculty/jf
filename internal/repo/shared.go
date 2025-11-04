@@ -27,6 +27,7 @@ type Repo interface {
 	ListJobs(ctx context.Context, q models.JobQuery) ([]models.Job, error)
 	DeleteJobs(ctx context.Context, ids []string) (int64, error)
 	ListJobsByIDs(ctx context.Context, ids []string) ([]models.Job, error)
+	JobURLExists(ctx context.Context, url string) (bool, error)
 }
 
 // SeedCompanies loads the embedded list and upserts by name (engine-agnostic).

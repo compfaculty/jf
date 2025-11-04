@@ -7,6 +7,7 @@ import (
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/pool"
+	"jf/internal/repo"
 	"jf/internal/scrape/common"
 	"jf/internal/utils"
 	"net/url"
@@ -25,9 +26,10 @@ type TelfedScraper struct {
 	company models.Company
 	browser common.Browser // required - Telfed uses Cloudflare protection
 	wp      *pond.WorkerPool
+	repo    repo.Repo // Optional repo for URL existence checks
 }
 
-func NewTelfed(c models.Company, browser common.Browser, wp *pond.WorkerPool) *TelfedScraper {
+func NewTelfed(c models.Company, browser common.Browser, wp *pond.WorkerPool, r repo.Repo) *TelfedScraper {
 	if browser == nil {
 		panic("TelfedScraper requires BrowserPool (site has Cloudflare protection)")
 	}
@@ -35,6 +37,7 @@ func NewTelfed(c models.Company, browser common.Browser, wp *pond.WorkerPool) *T
 		company: c,
 		browser: browser,
 		wp:      wp,
+		repo:    r,
 	}
 }
 
@@ -135,6 +138,20 @@ func (t *TelfedScraper) enrichJobsWithDetails(ctx context.Context, jobs []models
 	for i, job := range jobs {
 		i, job := i, job
 		group.Submit(func() error {
+			// Check if URL already exists in DB - skip if it does
+			if t.repo != nil {
+				exists, _ := t.repo.JobURLExists(ctx, job.URL)
+				if exists {
+					utils.Verbosef("[TELFED] Job %s already exists in DB, skipping", job.URL)
+					// Mark URL empty to signal skip downstream
+					mu.Lock()
+					job.URL = ""
+					results[i] = job
+					mu.Unlock()
+					return nil
+				}
+			}
+
 			details := t.fetchJobDetails(ctx, job.URL)
 			enriched := job
 			// If no date was found (details empty signal), mark URL empty to skip later

@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS jobs(
 /* Helpful read performance indices */
 CREATE INDEX IF NOT EXISTS idx_jobs_discovered_at ON jobs(discovered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_company_id    ON jobs(company_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_canonical_url ON jobs(canonical_url);
 `
 	start := time.Now()
 	if _, err := r.exec(context.Background(), schema); err != nil {
@@ -284,6 +285,30 @@ ON CONFLICT(company_id, canonical_url) DO UPDATE SET
 	ra := rowsAffected(res)
 	r.debugf("UpsertJob ok url=%q canon=%q company_id=%s rows=%d dur=%s", j.URL, canon, j.CompanyID, ra, dur)
 	return nil
+}
+
+func (r *DuckRepo) JobURLExists(ctx context.Context, url string) (bool, error) {
+	canon := canonicalizeURL(url)
+	if canon == "" {
+		return false, nil
+	}
+
+	//goland:noinspection SqlResolve,SqlNoDataSourceInspection,SqlDialectInspection
+	q := `SELECT EXISTS(SELECT 1 FROM jobs WHERE canonical_url = ? LIMIT 1)`
+	start := time.Now()
+	var exists int
+	err := r.db.QueryRowContext(ctx, q, canon).Scan(&exists)
+	dur := time.Since(start)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		r.debugf("JobURLExists err url=%q canon=%q dur=%s err=%v", url, canon, dur, err)
+		return false, err
+	}
+	result := exists == 1
+	r.debugf("JobURLExists ok url=%q canon=%q exists=%v dur=%s", url, canon, result, dur)
+	return result, nil
 }
 
 //goland:noinspection SqlResolve,SqlNoDataSourceInspection,SqlDialectInspection

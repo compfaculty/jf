@@ -200,13 +200,13 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 							Active:     agg.Active,
 						}
 						if err := r.UpsertCompanyByName(gctx, &company); err == nil {
-							source = scrape.NewJobSource(company, &agg, http.DefaultClient, bp, wp, feedParser)
+							source = scrape.NewJobSource(company, &agg, http.DefaultClient, bp, wp, feedParser, r)
 						}
 					}
 				} else if j.CompanyID != "" {
 					// Job is from a direct company
 					if company, exists := companyMap[j.CompanyID]; exists {
-						source = scrape.NewJobSource(company, nil, http.DefaultClient, bp, wp, feedParser)
+						source = scrape.NewJobSource(company, nil, http.DefaultClient, bp, wp, feedParser, r)
 					}
 				}
 

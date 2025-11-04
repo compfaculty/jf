@@ -7,6 +7,7 @@ import (
 	"io"
 	"jf/internal/config"
 	"jf/internal/models"
+	"jf/internal/repo"
 	"jf/internal/scrape/common"
 	"jf/internal/utils"
 	"jf/internal/validators"
@@ -37,12 +38,14 @@ var (
 type SecretTelAviv struct {
 	company models.Company
 	client  common.Doer
+	repo    repo.Repo // Optional repo for URL existence checks
 }
 
-func NewSecretTelAviv(c models.Company, client common.Doer) *SecretTelAviv {
+func NewSecretTelAviv(c models.Company, client common.Doer, r repo.Repo) *SecretTelAviv {
 	return &SecretTelAviv{
 		company: c,
 		client:  common.EnsureClient(client),
+		repo:    r,
 	}
 }
 
@@ -127,6 +130,15 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 		// 2) per-job inactive check + metadata extraction (lightweight GET + DOM probe)
 		filtered := make([]models.ScrapedJob, 0, len(items))
 		for i, j := range items {
+			// Check if URL already exists in DB - skip if it does
+			if s.repo != nil {
+				exists, _ := s.repo.JobURLExists(ctx, j.URL)
+				if exists {
+					utils.Verbosef("[SecretTelAviv] Job %s already exists in DB, skipping", j.URL)
+					continue // Skip fetching metadata
+				}
+			}
+
 			utils.Verbosef("[SecretTelAviv] Fetching metadata for job %d/%d: %s", i+1, len(items), j.URL)
 			ok, inactive, companyName, postedDate, description, location := s.fetchJobMetadata(ctx, j.URL)
 			if !ok || inactive {

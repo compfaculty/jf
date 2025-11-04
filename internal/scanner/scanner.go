@@ -132,7 +132,7 @@ func (m *Scanner) run(ctx context.Context) {
 	for _, c := range companies {
 		c := c
 		utils.Verbosef("Scanner: processing company: %s", c.Name)
-		source := scrape.NewJobSource(c, nil, m.http, m.bp, m.wp, feedParser)
+		source := scrape.NewJobSource(c, nil, m.http, m.bp, m.wp, feedParser, m.repo)
 		m.processSource(ctx, &wg, &found, &done, total, source, &c, nil)
 	}
 
@@ -150,7 +150,7 @@ func (m *Scanner) run(ctx context.Context) {
 		// 	m.appendWarn(fmt.Sprintf("%s: failed to upsert company: %v", agg.Name, err))
 		// 	continue
 		// }
-		source := scrape.NewJobSource(*company, &agg, m.http, m.bp, m.wp, feedParser)
+		source := scrape.NewJobSource(*company, &agg, m.http, m.bp, m.wp, feedParser, m.repo)
 		m.processSource(ctx, &wg, &found, &done, total, source, company, &agg)
 	}
 
@@ -159,7 +159,7 @@ func (m *Scanner) run(ctx context.Context) {
 		agg := agg
 		utils.Verbosef("Scanner: processing RSS feed: %s", agg.Name)
 		c := models.Company{} // Empty for RSS
-		source := scrape.NewJobSource(c, &agg, m.http, m.bp, m.wp, feedParser)
+		source := scrape.NewJobSource(c, &agg, m.http, m.bp, m.wp, feedParser, m.repo)
 		m.processSource(ctx, &wg, &found, &done, total, source, nil, &agg)
 	}
 
@@ -223,6 +223,13 @@ func (m *Scanner) processSource(
 				m.appendWarn(fmt.Sprintf("cancelled: %v", cctx.Err()))
 				return
 			default:
+			}
+
+			// Check if URL already exists in DB - skip if it does
+			exists, err := m.repo.JobURLExists(cctx, listing.URL)
+			if err == nil && exists {
+				utils.Verbosef("Scanner: skipping existing job URL: %s", listing.URL)
+				continue // Skip this job - already in DB
 			}
 
 			// Parse metadata
