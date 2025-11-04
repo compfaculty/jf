@@ -421,6 +421,32 @@
                 background-position: -200% 0;
             }
         }
+
+        /* Real-time job animation */
+        .row.job-new {
+            animation: slideInPulse 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes slideInPulse {
+            0% {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.95);
+                box-shadow: 0 0 0 0 color-mix(in oklab, var(--brand) 0%, transparent 100%);
+            }
+            50% {
+                box-shadow: 0 0 20px 4px color-mix(in oklab, var(--brand) 40%, transparent 60%);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                box-shadow: 0 0 0 0 color-mix(in oklab, var(--brand) 0%, transparent 100%);
+            }
+        }
+
+        .row.job-highlight {
+            background: color-mix(in oklab, var(--bg) 85%, var(--brand) 15%);
+            transition: background 2.5s ease-out;
+        }
     </style>
 </head>
 <body>
@@ -517,6 +543,7 @@
     let offset = 0;
     let total = 0;
     let jobsAbort = null; // cancel in-flight /api/jobs
+    let sseConnection = null; // SSE EventSource connection
 
     // Apply stored page size
     if ([10, 25, 50, 100].includes(limit)) limitSel.value = String(limit);
@@ -529,11 +556,174 @@
             statusText.textContent = 'Starting scan…';
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = setInterval(pollStatus, 600);
+            
+            // Open SSE connection for real-time updates
+            openSSEConnection();
+            
             toast('Scan started', 'The scanner is running.');
         } catch (e) {
             toast('Failed to start scan', e.message || String(e), true);
         }
     });
+
+    // ------- SSE Real-time Updates -------
+    function openSSEConnection() {
+        // Close existing connection if any
+        closeSSEConnection();
+        
+        // Only connect if on page 1 with no search filter (real-time updates only for main view)
+        if (offset !== 0 || q.value.trim() !== '') {
+            return; // Don't stream if user is on a different page or has a search
+        }
+        
+        sseConnection = new EventSource('/api/scan/stream');
+        
+        sseConnection.addEventListener('job_found', (e) => {
+            try {
+                const job = JSON.parse(e.data);
+                handleNewJob(job);
+            } catch (err) {
+                console.warn('SSE: failed to parse job_found event', err);
+            }
+        });
+        
+        sseConnection.addEventListener('scan_status', (e) => {
+            try {
+                const status = JSON.parse(e.data);
+                // Update status if needed (we already poll, but this is real-time)
+                if (status.running) {
+                    barFill.style.width = (status.percent || 0) + '%';
+                }
+            } catch (err) {
+                console.warn('SSE: failed to parse scan_status event', err);
+            }
+        });
+        
+        sseConnection.addEventListener('scan_complete', (e) => {
+            try {
+                const result = JSON.parse(e.data);
+                closeSSEConnection();
+                // Reload jobs to get final state
+                loadJobs();
+                toast('Scan complete', `Found ${result.total_found} new job(s) in ${Math.round(result.duration_seconds)}s.`);
+            } catch (err) {
+                console.warn('SSE: failed to parse scan_complete event', err);
+            }
+        });
+        
+        sseConnection.onerror = (err) => {
+            console.warn('SSE connection error', err);
+            // Don't auto-reconnect if scan is not running
+            if (!pollTimer) {
+                closeSSEConnection();
+            }
+        };
+    }
+    
+    function closeSSEConnection() {
+        if (sseConnection) {
+            sseConnection.close();
+            sseConnection = null;
+        }
+    }
+    
+    function handleNewJob(job) {
+        // Only update UI if on page 1 with no search filter
+        if (offset !== 0 || q.value.trim() !== '') {
+            return;
+        }
+        
+        // Prepend new job to the list
+        const row = createJobRow(job);
+        
+        // Add animation classes
+        row.classList.add('job-new', 'job-highlight');
+        
+        // Insert at the top of the list
+        const listEl = $("#list");
+        if (listEl.children.length === 0 || listEl.querySelector('.muted')) {
+            listEl.innerHTML = ''; // Clear "No jobs yet" message if present
+        }
+        
+        listEl.insertBefore(row, listEl.firstChild);
+        
+        // Remove animation class after animation completes
+        setTimeout(() => {
+            row.classList.remove('job-new');
+        }, 600);
+        
+        // Remove highlight class after fade completes
+        setTimeout(() => {
+            row.classList.remove('job-highlight');
+        }, 2500);
+        
+        // Update total count
+        total++;
+        updatePager();
+        
+        // Update selection state (new jobs are not selected)
+        updateSelectionState();
+    }
+    
+    function createJobRow(j) {
+        const applied = !!j.applied;
+        const statusIcon = applied ? '✅' : '🆕';
+        const url = j.url || '';
+        const descHTML = formatDesc(j.description || '');
+        
+        // Format PostedAt if available
+        let datePosted = '';
+        if (j.posted_at) {
+            try {
+                const postedDate = new Date(j.posted_at);
+                if (!isNaN(postedDate.getTime())) {
+                    datePosted = postedDate.toLocaleDateString();
+                }
+            } catch (e) {
+                datePosted = j.posted_at;
+            }
+        }
+        
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.role = 'listitem';
+        row.innerHTML = `
+        <div class="cell">
+          <input type="checkbox" title="Select" data-id="${j.id}" ${applied ? 'disabled' : ''} />
+        </div>
+        <div class="cell title ellipsis">
+          <h4>${statusIcon} <a href="${url}" target="_blank" rel="noopener" class="job-link">${escapeHtml(j.title || '(no title)')}</a></h4>
+        </div>
+        <div class="cell company meta-sm">
+          ${j.company_name ? `🏢 ${escapeHtml(j.company_name)}` : ''}
+        </div>
+        <div class="cell aggregator meta-sm">
+          ${j.aggregator_name ? `📌 ${escapeHtml(j.aggregator_name)}` : ''}
+        </div>
+        <div class="cell date-posted meta-sm">
+          ${datePosted ? `📅 ${escapeHtml(datePosted)}` : ''}
+        </div>
+        <div class="cell status right">
+          ${applied ? `<span class="pill applied">Applied</span>` : `<span class="pill new">Not applied</span>`}
+        </div>`;
+        
+        // Preview hover
+        const link = row.querySelector('.job-link');
+        attachPreview(link, {
+            title: j.title || '(no title)',
+            company: j.company_name || '',
+            location: j.location || '',
+            hrEmail: j.hr_email || '',
+            hrPhone: j.hr_phone || '',
+            descHTML
+        });
+        
+        // Checkbox selection listener
+        const cb = row.querySelector('input[type="checkbox"]');
+        cb.addEventListener('change', updateSelectionState);
+        
+        return row;
+    }
 
     async function pollStatus() {
         try {
@@ -545,6 +735,7 @@
             if (!st.running && pollTimer) {
                 clearInterval(pollTimer);
                 pollTimer = null;
+                closeSSEConnection(); // Close SSE when scan completes
                 await loadJobs();
             }
         } catch (e) {
@@ -567,6 +758,7 @@
 
     refreshBtn.addEventListener('click', () => {
         offset = 0;
+        closeSSEConnection(); // Close SSE when manually refreshing
         loadJobs();
     });
     latestBtn.addEventListener('click', () => {
@@ -579,11 +771,13 @@
     });
     prevBtn.addEventListener('click', () => {
         offset = Math.max(0, offset - limit);
+        closeSSEConnection(); // Close SSE when navigating pages
         loadJobs();
     });
     nextBtn.addEventListener('click', () => {
         if (offset + limit < total) {
             offset += limit;
+            closeSSEConnection(); // Close SSE when navigating pages
             loadJobs();
         }
     });
@@ -599,6 +793,7 @@
     q.addEventListener('input', debounce(() => {
         offset = 0;
         syncQueryToURL();
+        closeSSEConnection(); // Close SSE when searching (real-time only for unfiltered view)
         loadJobs();
     }, 250));
     q.addEventListener('keydown', e => {
@@ -686,56 +881,7 @@
         const frag = document.createDocumentFragment();
 
         for (const j of jobs) {
-            const applied = !!j.applied;
-            const statusIcon = applied ? '✅' : '🆕';
-            const url = j.url || '';
-            const descHTML = formatDesc(j.description || '');
-            
-            // Format PostedAt if available
-            let datePosted = '';
-            if (j.posted_at) {
-                try {
-                    const postedDate = new Date(j.posted_at);
-                    if (!isNaN(postedDate.getTime())) {
-                        datePosted = postedDate.toLocaleDateString();
-                    }
-                } catch (e) {
-                    // If posted_at is a string, try to use it as-is
-                    datePosted = j.posted_at;
-                }
-            }
-
-            const row = document.createElement('div');
-            row.className = 'row';
-            row.role = 'listitem';
-            row.innerHTML = `
-        <div class="cell">
-          <input type="checkbox" title="Select" data-id="${j.id}" ${applied ? 'disabled' : ''} />
-        </div>
-        <div class="cell title ellipsis">
-          <h4>${statusIcon} <a href="${url}" target="_blank" rel="noopener" class="job-link">${escapeHtml(j.title || '(no title)')}</a></h4>
-        </div>
-        <div class="cell company meta-sm">
-          ${j.company_name ? `🏢 ${escapeHtml(j.company_name)}` : ''}
-        </div>
-        <div class="cell aggregator meta-sm">
-          ${j.aggregator_name ? `📌 ${escapeHtml(j.aggregator_name)}` : ''}
-        </div>
-        <div class="cell date-posted meta-sm">
-          ${datePosted ? `📅 ${escapeHtml(datePosted)}` : ''}
-        </div>
-        <div class="cell status right">
-          ${applied ? `<span class="pill applied">Applied</span>` : `<span class="pill new">Not applied</span>`}
-        </div>`;
-
-            // preview hover
-            const link = row.querySelector('.job-link');
-            attachPreview(link, {title: j.title || '(no title)', company: j.company_name || '', location: j.location || '', hrEmail: j.hr_email || '', hrPhone: j.hr_phone || '', descHTML});
-
-            // checkbox selection listeners
-            const cb = row.querySelector('input[type="checkbox"]');
-            cb.addEventListener('change', updateSelectionState);
-
+            const row = createJobRow(j);
             frag.appendChild(row);
         }
 

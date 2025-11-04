@@ -22,6 +22,15 @@ import (
 	"github.com/alitto/pond"
 )
 
+// JobFoundCallback is called when a new job is successfully stored
+type JobFoundCallback func(job models.Job)
+
+// ScanStatusCallback is called when scan status changes
+type ScanStatusCallback func(running bool, percent, found, total int, errMsg string)
+
+// ScanCompleteCallback is called when scan completes
+type ScanCompleteCallback func(totalFound int, duration time.Duration)
+
 type Scanner struct {
 	repo          repo.Repo
 	aggregatorReg *aggregators.Registry
@@ -29,6 +38,10 @@ type Scanner struct {
 	http          commonpkg.Doer
 	bp            *pool.BrowserPool
 	wp            *pond.WorkerPool
+	onJobFound    JobFoundCallback     // Optional callback for when jobs are found
+	onStatus      ScanStatusCallback   // Optional callback for status updates
+	onComplete    ScanCompleteCallback // Optional callback for scan completion
+	startTime     time.Time            // Track scan start time for duration
 
 	mu     sync.Mutex
 	state  ScanState
@@ -48,6 +61,27 @@ type ScanState struct {
 // it'll still work (we gate usage accordingly).
 func NewScanner(r repo.Repo, aggregatorReg *aggregators.Registry, cfg *config.Config, httpDoer commonpkg.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Scanner {
 	return &Scanner{repo: r, aggregatorReg: aggregatorReg, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
+}
+
+// SetJobFoundCallback sets the callback to be invoked when a job is successfully stored
+func (m *Scanner) SetJobFoundCallback(cb JobFoundCallback) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onJobFound = cb
+}
+
+// SetStatusCallback sets the callback to be invoked when scan status changes
+func (m *Scanner) SetStatusCallback(cb ScanStatusCallback) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onStatus = cb
+}
+
+// SetCompleteCallback sets the callback to be invoked when scan completes
+func (m *Scanner) SetCompleteCallback(cb ScanCompleteCallback) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onComplete = cb
 }
 
 func (m *Scanner) Status() ScanState {
@@ -73,9 +107,11 @@ func (m *Scanner) StartScan() error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
+	startTime := time.Now().UTC()
+	m.startTime = startTime
 	m.state = ScanState{
 		Running:   true,
-		StartedAt: time.Now().UTC(),
+		StartedAt: startTime,
 		Percent:   0,
 		Found:     0,
 		Total:     0,
@@ -169,7 +205,8 @@ func (m *Scanner) run(ctx context.Context) {
 	case <-ctx.Done():
 		m.finishWithErr(ctx.Err())
 	default:
-		m.finishOK(100, int(atomic.LoadInt64(&found)))
+		totalFound := int(atomic.LoadInt64(&found))
+		m.finishOK(100, totalFound)
 	}
 }
 
@@ -315,6 +352,28 @@ func (m *Scanner) processSource(
 
 			utils.Verbosef("Scanner: successfully upserted job: title=%q url=%q company_id=%s aggregator=%q",
 				j.Title, j.URL, j.CompanyID, j.AggregatorName)
+
+			// Set company name if available (for event callback)
+			if company != nil {
+				j.CompanyName = company.Name
+			} else if metadata.Company != "" {
+				// For aggregator jobs, use the company name from metadata
+				j.CompanyName = metadata.Company
+			} else if aggregator != nil {
+				// Fallback to aggregator name if no company name
+				j.CompanyName = aggregator.Name
+			}
+
+			// Invoke callback if set (for real-time updates)
+			m.mu.Lock()
+			cb := m.onJobFound
+			m.mu.Unlock()
+			if cb != nil {
+				// Make a copy to avoid race conditions with object pooling
+				jobCopy := *j
+				go cb(jobCopy) // Call in goroutine to avoid blocking
+			}
+
 			utils.PutJob(j)
 			newN++
 		}
@@ -345,7 +404,15 @@ func (m *Scanner) setProgress(percent, found int) {
 	m.mu.Lock()
 	m.state.Percent = percent
 	m.state.Found = found
+	cb := m.onStatus
+	running := m.state.Running
+	total := m.state.Total
+	errMsg := m.state.Error
 	m.mu.Unlock()
+
+	if cb != nil {
+		go cb(running, percent, found, total, errMsg)
+	}
 }
 
 func (m *Scanner) appendWarn(e string) {
@@ -370,5 +437,11 @@ func (m *Scanner) finishOK(pct, found int) {
 	m.state.Running = false
 	m.state.Percent = pct
 	m.state.Found = found
+	duration := time.Since(m.startTime)
+	cb := m.onComplete
 	m.mu.Unlock()
+
+	if cb != nil {
+		go cb(found, duration)
+	}
 }

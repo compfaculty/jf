@@ -6,6 +6,7 @@ import (
 	"jf/internal/aggregators"
 	"jf/internal/config"
 	"jf/internal/httpx"
+	"jf/internal/models"
 	"jf/internal/pool"
 	"jf/internal/repo"
 	"jf/internal/scanner"
@@ -67,12 +68,27 @@ func main() {
 	wp := pond.New(w, q, pond.Context(rootCtx))
 	defer wp.StopAndWait()
 
+	// --- SSE Event Broker ---
+	broker := server.NewBroker()
+	defer broker.Close()
+
 	// --- Scanner manager
 	sm := scanner.NewScanner(r, aggregatorReg, cfg, httpDoer, bp, wp)
 
+	// Wire broker callbacks to scanner
+	sm.SetJobFoundCallback(func(job models.Job) {
+		broker.SendJobFound(job)
+	})
+	sm.SetStatusCallback(func(running bool, percent, found, total int, errMsg string) {
+		broker.SendScanStatus(running, percent, found, total, errMsg)
+	})
+	sm.SetCompleteCallback(func(totalFound int, duration time.Duration) {
+		broker.SendScanComplete(totalFound, duration)
+	})
+
 	// --- HTTP server ---
 	// RSS feeds are now processed on-demand during scan, no background monitoring
-	router := server.NewRouter(r, sm, aggregatorReg, nil, cfg, wp)
+	router := server.NewRouter(r, sm, aggregatorReg, nil, cfg, wp, broker)
 	h := WithRecovery(WithRequestLogger(router, cfg.Debug))
 
 	httpSrv := &http.Server{

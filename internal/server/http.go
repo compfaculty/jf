@@ -32,7 +32,7 @@ import (
 //go:embed gui.html
 var content embed.FS
 
-func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Registry, fm *feed.Monitor, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
+func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Registry, fm *feed.Monitor, cfg *config.Config, wp *pond.WorkerPool, broker *Broker) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -62,6 +62,13 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 			Error:     st.Error,
 		})
 	})
+
+	// SSE stream endpoint for real-time updates
+	if broker != nil {
+		mux.Get("/api/scan/stream", func(w http.ResponseWriter, req *http.Request) {
+			handleSSEStream(w, req, broker, sm)
+		})
+	}
 
 	// Metrics endpoint
 	mux.Get("/api/metrics", func(w http.ResponseWriter, _ *http.Request) {
@@ -343,6 +350,71 @@ func applyViaEmail(ctx context.Context, job models.Job, cfg *config.Config) (boo
 		return false, fmt.Sprintf("email send error: %v", err)
 	}
 	return true, ""
+}
+
+func handleSSEStream(w http.ResponseWriter, req *http.Request, broker *Broker, sm *scanner.Scanner) {
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+	// Flush headers immediately
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	// Generate client ID
+	clientID := fmt.Sprintf("client-%d", time.Now().UnixNano())
+
+	// Register client
+	client := broker.Register(clientID)
+	if client == nil {
+		http.Error(w, "broker closed", http.StatusServiceUnavailable)
+		return
+	}
+	defer broker.Unregister(clientID)
+
+	// Send initial status
+	st := sm.Status()
+	broker.SendScanStatus(st.Running, st.Percent, st.Found, st.Total, st.Error)
+
+	// Stream messages until client disconnects
+	ctx := req.Context()
+	ticker := time.NewTicker(30 * time.Second) // Keep-alive ping
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected
+			return
+		case <-client.Done:
+			// Broker closed client
+			return
+		case msg, ok := <-client.Messages:
+			if !ok {
+				// Channel closed
+				return
+			}
+			if _, err := w.Write(msg); err != nil {
+				log.Printf("[SSE] write error for client %s: %v", clientID, err)
+				return
+			}
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		case <-ticker.C:
+			// Send keep-alive comment
+			if _, err := w.Write([]byte(": keep-alive\n\n")); err != nil {
+				log.Printf("[SSE] keep-alive error for client %s: %v", clientID, err)
+				return
+			}
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		}
+	}
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
