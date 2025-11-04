@@ -101,21 +101,10 @@ CREATE TABLE IF NOT EXISTS companies(
 );
 CREATE UNIQUE INDEX IF NOT EXISTS companies_name_uq ON companies(name);
 
-CREATE TABLE IF NOT EXISTS aggregators(
-  id          TEXT PRIMARY KEY,
-  name        TEXT NOT NULL,
-  source_url  TEXT NOT NULL,
-  type        TEXT NOT NULL,
-  active      INTEGER NOT NULL DEFAULT 1,
-  created_at  TIMESTAMP NOT NULL,
-  updated_at  TIMESTAMP NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS aggregators_name_uq ON aggregators(name);
-
 CREATE TABLE IF NOT EXISTS jobs(
   id             TEXT PRIMARY KEY,
   company_id     TEXT NOT NULL REFERENCES companies(id),
-  source_id      TEXT,
+  aggregator_name TEXT NOT NULL DEFAULT '',
   title          TEXT NOT NULL,
   url            TEXT NOT NULL,
   apply_url      TEXT NOT NULL DEFAULT '',
@@ -135,7 +124,6 @@ CREATE TABLE IF NOT EXISTS jobs(
 /* Helpful read performance indices */
 CREATE INDEX IF NOT EXISTS idx_jobs_discovered_at ON jobs(discovered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_company_id    ON jobs(company_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_source_id     ON jobs(source_id);
 `
 	start := time.Now()
 	if _, err := r.exec(context.Background(), schema); err != nil {
@@ -255,113 +243,6 @@ func (r *DuckRepo) ListCompanies(ctx context.Context) ([]models.Company, error) 
 }
 
 // ----------------------------------------------------------------------------
-// Aggregators
-// ----------------------------------------------------------------------------
-
-func (r *DuckRepo) UpsertAggregator(ctx context.Context, a *models.Aggregator) error {
-	now := time.Now().UTC()
-	if a.ID == "" {
-		a.ID = uuid.NewString()
-	}
-	if a.CreatedAt.IsZero() {
-		a.CreatedAt = now
-	}
-	a.UpdatedAt = now
-
-	//goland:noinspection SqlResolve
-	q := `
-INSERT INTO aggregators(id,name,source_url,type,active,created_at,updated_at)
-VALUES(?,?,?,?,?,?,?)
-ON CONFLICT(id) DO UPDATE SET
-  name=excluded.name,
-  source_url=excluded.source_url,
-  type=excluded.type,
-  active=excluded.active,
-  updated_at=excluded.updated_at
-`
-	start := time.Now()
-	res, err := r.exec(ctx, q, a.ID, a.Name, a.SourceURL, a.Type, boolToInt(a.Active), a.CreatedAt, a.UpdatedAt)
-	dur := time.Since(start)
-	if err != nil {
-		r.infof("UpsertAggregator err aggregator=%q id=%s dur=%s err=%v", a.Name, a.ID, dur, err)
-		return err
-	}
-	ra := rowsAffected(res)
-	r.debugf("UpsertAggregator ok aggregator=%q id=%s rows=%d dur=%s", a.Name, a.ID, ra, dur)
-	return nil
-}
-
-func (r *DuckRepo) UpsertAggregatorByName(ctx context.Context, a *models.Aggregator) error {
-	now := time.Now().UTC()
-	if a.ID == "" {
-		a.ID = uuid.NewString()
-	}
-	if a.CreatedAt.IsZero() {
-		a.CreatedAt = now
-	}
-	a.UpdatedAt = now
-
-	//goland:noinspection SqlResolve
-	q := `
-INSERT INTO aggregators(id,name,source_url,type,active,created_at,updated_at)
-VALUES(?,?,?,?,?,?,?)
-ON CONFLICT(name) DO UPDATE SET
-  source_url=excluded.source_url,
-  type=excluded.type,
-  active=excluded.active,
-  updated_at=excluded.updated_at
-`
-	start := time.Now()
-	res, err := r.exec(ctx, q, a.ID, a.Name, a.SourceURL, a.Type, boolToInt(a.Active), a.CreatedAt, a.UpdatedAt)
-	dur := time.Since(start)
-	if err != nil {
-		r.infof("UpsertAggregatorByName err name=%q dur=%s err=%v", a.Name, dur, err)
-		return err
-	}
-	r.debugf("UpsertAggregatorByName ok name=%q rows=%d dur=%s", a.Name, rowsAffected(res), dur)
-
-	// Always fetch the ID to ensure we have the correct one after upsert
-	idQ := `SELECT id FROM aggregators WHERE name = ?`
-	if err := r.db.QueryRowContext(ctx, idQ, a.Name).Scan(&a.ID); err != nil {
-		r.infof("UpsertAggregatorByName failed to fetch ID for name=%q err=%v", a.Name, err)
-		return err
-	}
-	return nil
-}
-
-func (r *DuckRepo) ListAggregators(ctx context.Context) ([]models.Aggregator, error) {
-	//goland:noinspection SqlResolve
-	const q = `SELECT id,name,source_url,type,active,created_at,updated_at FROM aggregators WHERE active=1 ORDER BY name`
-	start := time.Now()
-	rows, err := r.db.QueryContext(ctx, q)
-	dur := time.Since(start)
-	if err != nil {
-		r.infof("SQL query err dur=%s sql=%q err=%v", dur, minifySQL(q), err)
-		r.infof("ListAggregators err err=%v", err)
-		return nil, err
-	}
-	r.debugf("SQL query ok  dur=%s sql=%q", dur, minifySQL(q))
-	defer rows.Close()
-	var out []models.Aggregator
-	var n int
-	for rows.Next() {
-		var a models.Aggregator
-		var activeInt int
-		if err := rows.Scan(&a.ID, &a.Name, &a.SourceURL, &a.Type, &activeInt, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			return nil, err
-		}
-		a.Active = activeInt == 1
-		out = append(out, a)
-		n++
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	r.debugf("ListAggregators ok count=%d dur=%s", n, time.Since(start))
-	return out, nil
-}
-
-// ----------------------------------------------------------------------------
 // Jobs
 // ----------------------------------------------------------------------------
 
@@ -378,12 +259,12 @@ func (r *DuckRepo) UpsertJob(ctx context.Context, j *models.Job) error {
 
 	//goland:noinspection SqlResolve
 	q := `
-INSERT INTO jobs(id,company_id,source_id,title,url,apply_url,apply_via_portal,canonical_url,location,description,hr_email,hr_phone,discovered_at,posted_at,applied,applied_at)
+INSERT INTO jobs(id,company_id,aggregator_name,title,url,apply_url,apply_via_portal,canonical_url,location,description,hr_email,hr_phone,discovered_at,posted_at,applied,applied_at)
 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(company_id, canonical_url) DO UPDATE SET
   title=excluded.title,
   url=excluded.url,
-  source_id=excluded.source_id,
+  aggregator_name=excluded.aggregator_name,
   apply_url=excluded.apply_url,
   apply_via_portal=excluded.apply_via_portal,
   location=excluded.location,
@@ -394,7 +275,7 @@ ON CONFLICT(company_id, canonical_url) DO UPDATE SET
 `
 	start := time.Now()
 	res, err := r.exec(ctx, q,
-		j.ID, j.CompanyID, j.SourceID, j.Title, j.URL, j.ApplyURL, boolToInt(j.ApplyViaPortal), canon, j.Location, j.Description, j.HREmail, j.HRPhone, j.DiscoveredAt, j.PostedAt, boolToInt(j.Applied), j.AppliedAt)
+		j.ID, j.CompanyID, j.AggregatorName, j.Title, j.URL, j.ApplyURL, boolToInt(j.ApplyViaPortal), canon, j.Location, j.Description, j.HREmail, j.HRPhone, j.DiscoveredAt, j.PostedAt, boolToInt(j.Applied), j.AppliedAt)
 	dur := time.Since(start)
 	if err != nil {
 		r.infof("UpsertJob err url=%q canon=%q company_id=%s dur=%s err=%v", j.URL, canon, j.CompanyID, dur, err)
@@ -488,8 +369,7 @@ JOIN companies c ON c.id = j.company_id
 SELECT j.id,
        j.company_id,
        c.name as company_name,
-       j.source_id,
-       a.name as aggregator_name,
+       j.aggregator_name,
        j.title,
        j.url,
        j.apply_url,
@@ -504,7 +384,6 @@ SELECT j.id,
        j.applied_at
 FROM jobs j
 JOIN companies c ON c.id = j.company_id
-LEFT JOIN aggregators a ON a.id = j.source_id
 %s
 ORDER BY j.discovered_at DESC
 LIMIT ? OFFSET ?`, whereSQL)
@@ -523,9 +402,9 @@ LIMIT ? OFFSET ?`, whereSQL)
 		var applyViaPortalInt int
 		var appliedAt sql.NullTime
 		var postedAt sql.NullString
-		var aggregatorName sql.NullString
+		var aggregatorName string
 		if err = rows.Scan(
-			&j.ID, &j.CompanyID, &j.CompanyName, &j.SourceID, &aggregatorName, &j.Title, &j.URL, &j.ApplyURL, &applyViaPortalInt,
+			&j.ID, &j.CompanyID, &j.CompanyName, &aggregatorName, &j.Title, &j.URL, &j.ApplyURL, &applyViaPortalInt,
 			&j.Location, &j.Description, &j.HREmail, &j.HRPhone,
 			&j.DiscoveredAt, &postedAt, &appliedInt, &appliedAt,
 		); err != nil {
@@ -533,9 +412,7 @@ LIMIT ? OFFSET ?`, whereSQL)
 		}
 		j.Applied = appliedInt == 1
 		j.ApplyViaPortal = applyViaPortalInt == 1
-		if aggregatorName.Valid {
-			j.AggregatorName = aggregatorName.String
-		}
+		j.AggregatorName = aggregatorName
 		if postedAt.Valid {
 			j.PostedAt = postedAt.String
 		}

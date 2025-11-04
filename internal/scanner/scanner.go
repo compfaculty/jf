@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"jf/internal/aggregators"
 	"jf/internal/config"
 	"jf/internal/feed"
 	"jf/internal/models"
@@ -22,11 +23,12 @@ import (
 )
 
 type Scanner struct {
-	repo repo.Repo
-	cfg  *config.Config
-	http commonpkg.Doer
-	bp   *pool.BrowserPool
-	wp   *pond.WorkerPool
+	repo          repo.Repo
+	aggregatorReg *aggregators.Registry
+	cfg           *config.Config
+	http          commonpkg.Doer
+	bp            *pool.BrowserPool
+	wp            *pond.WorkerPool
 
 	mu     sync.Mutex
 	state  ScanState
@@ -42,10 +44,10 @@ type ScanState struct {
 	Error     string    `json:"error"`
 }
 
-// NewScanner wires both pools. If you don’t need one of them yet, you can pass nil;
-// it’ll still work (we gate usage accordingly).
-func NewScanner(r repo.Repo, cfg *config.Config, httpDoer commonpkg.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Scanner {
-	return &Scanner{repo: r, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
+// NewScanner wires both pools. If you don't need one of them yet, you can pass nil;
+// it'll still work (we gate usage accordingly).
+func NewScanner(r repo.Repo, aggregatorReg *aggregators.Registry, cfg *config.Config, httpDoer commonpkg.Doer, bp *pool.BrowserPool, wp *pond.WorkerPool) *Scanner {
+	return &Scanner{repo: r, aggregatorReg: aggregatorReg, cfg: cfg, http: httpDoer, bp: bp, wp: wp}
 }
 
 func (m *Scanner) Status() ScanState {
@@ -94,11 +96,7 @@ func (m *Scanner) run(ctx context.Context) {
 	}
 	utils.Verbosef("Scanner: loaded %d companies", len(companies))
 
-	aggregators, err := m.repo.ListAggregators(ctx)
-	if err != nil {
-		m.finishWithErr(err)
-		return
-	}
+	aggregators := m.aggregatorReg.GetAll()
 	utils.Verbosef("Scanner: loaded %d aggregators", len(aggregators))
 
 	// Separate aggregators by type
@@ -148,10 +146,10 @@ func (m *Scanner) run(ctx context.Context) {
 			CareersURL: agg.SourceURL,
 			Active:     agg.Active,
 		}
-		if err := m.repo.UpsertCompanyByName(ctx, company); err != nil {
-			m.appendWarn(fmt.Sprintf("%s: failed to upsert company: %v", agg.Name, err))
-			continue
-		}
+		// if err := m.repo.UpsertCompanyByName(ctx, company); err != nil {
+		// 	m.appendWarn(fmt.Sprintf("%s: failed to upsert company: %v", agg.Name, err))
+		// 	continue
+		// }
 		source := scrape.NewJobSource(*company, &agg, m.http, m.bp, m.wp, feedParser)
 		m.processSource(ctx, &wg, &found, &done, total, source, company, &agg)
 	}
@@ -278,7 +276,6 @@ func (m *Scanner) processSource(
 			}
 
 			if aggregator != nil {
-				j.SourceID = aggregator.ID
 				j.AggregatorName = aggregator.Name
 			}
 

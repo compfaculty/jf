@@ -120,7 +120,7 @@
 
         .row {
             display: grid;
-            grid-template-columns: 28px 2.5fr 1.5fr 1.2fr 140px; /* ☑ | title | source | date_posted | status */
+            grid-template-columns: 28px 2.5fr 1.2fr 1.2fr 1.2fr 140px; /* ☑ | title | company | aggregator | date_posted | status */
             gap: 10px;
             align-items: center;
             padding: 8px 0;
@@ -372,7 +372,11 @@
                 grid-column: 2 / -1;
             }
 
-            .row .source {
+            .row .company {
+                grid-column: 2 / -1;
+            }
+
+            .row .aggregator {
                 grid-column: 2 / -1;
             }
 
@@ -666,6 +670,7 @@
         <div class="cell"><div class="skeleton" style="width:70%;"></div></div>
         <div class="cell"><div class="skeleton" style="width:60%;"></div></div>
         <div class="cell"><div class="skeleton" style="width:50%;"></div></div>
+        <div class="cell"><div class="skeleton" style="width:40%;"></div></div>
         <div class="cell right"><div class="skeleton" style="width:90px; height:22px; margin-left:auto; border-radius:999px;"></div></div>`;
             list.appendChild(row);
         }
@@ -685,14 +690,6 @@
             const statusIcon = applied ? '✅' : '🆕';
             const url = j.url || '';
             const descHTML = formatDesc(j.description || '');
-            
-            // Determine source: aggregator_name (job board/RSS) takes priority, otherwise company_name
-            let source = '';
-            if (j.aggregator_name) {
-                source = j.aggregator_name;
-            } else if (j.company_name) {
-                source = j.company_name;
-            }
             
             // Format PostedAt if available
             let datePosted = '';
@@ -718,8 +715,11 @@
         <div class="cell title ellipsis">
           <h4>${statusIcon} <a href="${url}" target="_blank" rel="noopener" class="job-link">${escapeHtml(j.title || '(no title)')}</a></h4>
         </div>
-        <div class="cell source meta-sm">
-          ${source ? `📌 ${escapeHtml(source)}` : ''}
+        <div class="cell company meta-sm">
+          ${j.company_name ? `🏢 ${escapeHtml(j.company_name)}` : ''}
+        </div>
+        <div class="cell aggregator meta-sm">
+          ${j.aggregator_name ? `📌 ${escapeHtml(j.aggregator_name)}` : ''}
         </div>
         <div class="cell date-posted meta-sm">
           ${datePosted ? `📅 ${escapeHtml(datePosted)}` : ''}
@@ -730,7 +730,7 @@
 
             // preview hover
             const link = row.querySelector('.job-link');
-            attachPreview(link, {title: j.title || '(no title)', company: source, location: j.location || '', hrEmail: j.hr_email || '', hrPhone: j.hr_phone || '', descHTML});
+            attachPreview(link, {title: j.title || '(no title)', company: j.company_name || '', location: j.location || '', hrEmail: j.hr_email || '', hrPhone: j.hr_phone || '', descHTML});
 
             // checkbox selection listeners
             const cb = row.querySelector('input[type="checkbox"]');
@@ -815,11 +815,13 @@
     let previewEl = null;
     let hideTimer = null;
 
+    // Add scroll listener once globally (not per job link)
+    window.addEventListener('scroll', hidePreviewSoon, {passive: true});
+
     function attachPreview(target, data) {
         target.addEventListener('mouseenter', e => showPreview(e, data));
         target.addEventListener('mousemove', e => movePreview(e));
         target.addEventListener('mouseleave', hidePreviewSoon);
-        window.addEventListener('scroll', hidePreviewSoon, {passive: true});
     }
 
     function showPreview(e, {title, company, location, hrEmail, hrPhone, descHTML}) {

@@ -16,7 +16,6 @@ type Job struct {
 	ID             string     `json:"id"`
 	CompanyID      string     `json:"company_id"`
 	CompanyName    string     `json:"company_name,omitempty"`
-	SourceID       string     `json:"source_id,omitempty"`       // ID of aggregator that found this job
 	AggregatorName string     `json:"aggregator_name,omitempty"` // Name of aggregator (for display)
 	Title          string     `json:"title"`
 	URL            string     `json:"url"`

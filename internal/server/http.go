@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
+	"jf/internal/aggregators"
 	"jf/internal/config"
 	"jf/internal/emailx"
 	"jf/internal/feed"
@@ -31,7 +32,7 @@ import (
 //go:embed gui.html
 var content embed.FS
 
-func NewRouter(r repo.Repo, sm *scanner.Scanner, fm *feed.Monitor, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
+func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Registry, fm *feed.Monitor, cfg *config.Config, wp *pond.WorkerPool) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -162,15 +163,10 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, fm *feed.Monitor, cfg *config.C
 			companyMap[c.ID] = c
 		}
 
-		aggregators, err := r.ListAggregators(req.Context())
-		if err != nil {
-			log.Printf("[APPLY] ListAggregators error: %v", err)
-			http.Error(w, "db error", http.StatusInternalServerError)
-			return
-		}
+		aggregators := aggregatorReg.GetAll()
 		aggregatorMap := make(map[string]models.Aggregator)
 		for _, a := range aggregators {
-			aggregatorMap[a.ID] = a
+			aggregatorMap[a.Name] = a
 		}
 
 		// Create feed parser for RSS sources (use default HTTP client)
@@ -194,9 +190,9 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, fm *feed.Monitor, cfg *config.C
 
 				// Determine source type and create appropriate JobSource
 				var source scrape.JobSource
-				if j.SourceID != "" {
+				if j.AggregatorName != "" {
 					// Job is from an aggregator (board or RSS)
-					if agg, exists := aggregatorMap[j.SourceID]; exists {
+					if agg, exists := aggregatorMap[j.AggregatorName]; exists {
 						// Get or create company for aggregator
 						company := models.Company{
 							Name:       agg.Name,

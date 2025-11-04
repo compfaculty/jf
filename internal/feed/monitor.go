@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"jf/internal/aggregators"
 	"jf/internal/config"
 	"jf/internal/models"
 	"jf/internal/repo"
@@ -27,42 +28,38 @@ type FeedUpdate struct {
 
 // Monitor manages RSS feed polling and job ingestion
 type Monitor struct {
-	repo       repo.Repo
-	parser     *Parser
-	cfg        *config.Config
-	updates    []FeedUpdate // recent updates (keep last N)
-	mu         sync.RWMutex
-	lastUpdate atomic.Value // time.Time
-	ticker     *time.Ticker
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	repo          repo.Repo
+	aggregatorReg *aggregators.Registry
+	parser        *Parser
+	cfg           *config.Config
+	updates       []FeedUpdate // recent updates (keep last N)
+	mu            sync.RWMutex
+	lastUpdate    atomic.Value // time.Time
+	ticker        *time.Ticker
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 }
 
 // NewMonitor creates a new RSS feed monitor
-func NewMonitor(r repo.Repo, parser *Parser, cfg *config.Config) *Monitor {
+func NewMonitor(r repo.Repo, aggregatorReg *aggregators.Registry, parser *Parser, cfg *config.Config) *Monitor {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Monitor{
-		repo:    r,
-		parser:  parser,
-		cfg:     cfg,
-		updates: make([]FeedUpdate, 0, 100), // Keep last 100 updates
-		ctx:     ctx,
-		cancel:  cancel,
+		repo:          r,
+		aggregatorReg: aggregatorReg,
+		parser:        parser,
+		cfg:           cfg,
+		updates:       make([]FeedUpdate, 0, 100), // Keep last 100 updates
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
 // Start begins monitoring feeds according to the configured interval
-// Now reads RSS feed aggregators from the database instead of config
+// Now reads RSS feed aggregators from the aggregator registry instead of database
 func (m *Monitor) Start() error {
-	ctx := context.Background()
-
-	// Get all RSS feed aggregators from database
-	aggregators, err := m.repo.ListAggregators(ctx)
-	if err != nil {
-		log.Printf("[FEED] Failed to list aggregators: %v", err)
-		return err
-	}
+	// Get all RSS feed aggregators from registry
+	aggregators := m.aggregatorReg.GetAll()
 
 	// Filter for RSS feed type aggregators only
 	rssAggregators := make([]models.Aggregator, 0)
@@ -73,7 +70,7 @@ func (m *Monitor) Start() error {
 	}
 
 	if len(rssAggregators) == 0 {
-		log.Printf("[FEED] No RSS feed aggregators found in database")
+		log.Printf("[FEED] No RSS feed aggregators found in registry")
 		return nil
 	}
 
@@ -123,12 +120,8 @@ func (m *Monitor) pollOnce() {
 	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Minute)
 	defer cancel()
 
-	// Get RSS feed aggregators from database
-	aggregators, err := m.repo.ListAggregators(ctx)
-	if err != nil {
-		log.Printf("[FEED] Failed to list aggregators: %v", err)
-		return
-	}
+	// Get RSS feed aggregators from registry
+	aggregators := m.aggregatorReg.GetAll()
 
 	// Filter for active RSS feed aggregators
 	rssAggregators := make([]models.Aggregator, 0)
@@ -221,7 +214,7 @@ func (m *Monitor) pollFeed(ctx context.Context, agg models.Aggregator) FeedUpdat
 		}
 
 		job.CompanyID = companyID
-		job.SourceID = agg.ID // Set the aggregator source ID
+		job.AggregatorName = agg.Name // Set the aggregator name
 
 		if err := m.repo.UpsertJob(ctx, &job); err != nil {
 			log.Printf("[FEED] Error upserting job %s: %v", job.URL, err)
@@ -294,18 +287,15 @@ func (m *Monitor) GetStatus() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Get RSS feed aggregators count from database
-	ctx := context.Background()
-	aggregators, err := m.repo.ListAggregators(ctx)
+	// Get RSS feed aggregators count from registry
+	aggregators := m.aggregatorReg.GetAll()
 	totalFeeds := 0
 	enabledFeeds := 0
-	if err == nil {
-		for _, agg := range aggregators {
-			if agg.Type == "rss_feed" {
-				totalFeeds++
-				if agg.Active {
-					enabledFeeds++
-				}
+	for _, agg := range aggregators {
+		if agg.Type == "rss_feed" {
+			totalFeeds++
+			if agg.Active {
+				enabledFeeds++
 			}
 		}
 	}

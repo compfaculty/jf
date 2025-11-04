@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"jf/internal/aggregators"
 	"jf/internal/config"
 	"jf/internal/httpx"
 	"jf/internal/pool"
@@ -54,9 +55,9 @@ func main() {
 	if err := repo.SeedCompanies(r); err != nil {
 		log.Printf("seed companies: %v", err)
 	}
-	if err := repo.SeedAggregators(r); err != nil {
-		log.Printf("seed aggregators: %v", err)
-	}
+
+	// Initialize aggregator registry (in-memory, not from DB)
+	aggregatorReg := aggregators.NewRegistry()
 
 	httpDoer := httpx.New(cfg.HTTPX())
 	bp := pool.NewBrowserPool(cfg.BrowserPoolConfig())
@@ -67,11 +68,11 @@ func main() {
 	defer wp.StopAndWait()
 
 	// --- Scanner manager
-	sm := scanner.NewScanner(r, cfg, httpDoer, bp, wp)
+	sm := scanner.NewScanner(r, aggregatorReg, cfg, httpDoer, bp, wp)
 
 	// --- HTTP server ---
 	// RSS feeds are now processed on-demand during scan, no background monitoring
-	router := server.NewRouter(r, sm, nil, cfg, wp)
+	router := server.NewRouter(r, sm, aggregatorReg, nil, cfg, wp)
 	h := WithRecovery(WithRequestLogger(router, cfg.Debug))
 
 	httpSrv := &http.Server{

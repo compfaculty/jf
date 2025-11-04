@@ -20,11 +20,6 @@ type Repo interface {
 	UpsertCompanyByName(ctx context.Context, c *models.Company) error
 	ListCompanies(ctx context.Context) ([]models.Company, error)
 
-	// Aggregators
-	UpsertAggregator(ctx context.Context, a *models.Aggregator) error
-	UpsertAggregatorByName(ctx context.Context, a *models.Aggregator) error
-	ListAggregators(ctx context.Context) ([]models.Aggregator, error)
-
 	// Jobs
 	UpsertJob(ctx context.Context, j *models.Job) error
 	ApplyJobs(ctx context.Context, ids []string) (int64, error)
@@ -68,48 +63,6 @@ func SeedCompanies(r Repo) error {
 
 	// optional: if your package has a logger, you can log here.
 	// log.Printf("[DB] SeedCompanies loaded=%d skipped=%d total_in_list=%d", added, skipped, len(embeddedCompanies))
-	_ = added
-	_ = skipped
-	return nil
-}
-
-// SeedAggregators loads the embedded aggregators list and upserts by name (engine-agnostic).
-// This seeds job boards/aggregators separately from pure companies.
-func SeedAggregators(r Repo) error {
-	seen := make(map[string]struct{}, len(embeddedAggregators))
-	ctx := context.Background()
-	added, skipped := 0, 0
-
-	for _, e := range embeddedAggregators {
-		name := strings.TrimSpace(e.Name)
-		sourceURL := strings.TrimSpace(e.SourceURL)
-		aggType := strings.TrimSpace(e.Type)
-		if name == "" || sourceURL == "" {
-			skipped++
-			continue
-		}
-		if aggType == "" {
-			aggType = "scraper" // default to scraper
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-
-		a := models.Aggregator{
-			Name:      name,
-			SourceURL: sourceURL,
-			Type:      aggType,
-			Active:    true,
-		}
-		if err := r.UpsertAggregatorByName(ctx, &a); err != nil {
-			return err
-		}
-		added++
-	}
-
-	// optional: if your package has a logger, you can log here.
-	// log.Printf("[DB] SeedAggregators loaded=%d skipped=%d total_in_list=%d", added, skipped, len(embeddedAggregators))
 	_ = added
 	_ = skipped
 	return nil

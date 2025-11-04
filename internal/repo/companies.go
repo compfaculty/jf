@@ -53,38 +53,3 @@ var embeddedCompanies = []struct {
 	//{"LayerX Security", "https://layerxsecurity.com/careers"},
 	//{"Mobilicom", "https://mobilicom.com/careers/"},
 }
-
-// RSSFeed contains job boards/aggregators.
-// These aggregate jobs from multiple companies.
-// For each aggregator:
-// - Name: display name
-// - SourceURL: URL to scrape (for scraping) or RSS feed URL (for RSS feeds)
-// - Type: "scraper" or "rss_feed"
-// - RSSFeedURL: optional RSS feed URL (empty string if using scraper, or same as SourceURL for RSS feeds)
-var RSSFeeds = []struct {
-	Name       string
-	SourceURL  string
-	Type       string // "scraper" or "rss_feed"
-	RSSFeedURL string // Optional RSS feed URL
-}{
-	// RSS Feed aggregators
-	{"DOU Jobs", "https://jobs.dou.ua/vacancies/feeds/", "rss_feed", "https://jobs.dou.ua/vacancies/feeds/"},
-	{"Jobicy", "https://jobicy.com/feed/job_feed", "rss_feed", "https://jobicy.com/feed/job_feed"},
-	{"Real Work From Anywhere", "https://www.realworkfromanywhere.com/rss.xml", "rss_feed", "https://www.realworkfromanywhere.com/rss.xml"},
-}
-
-// embeddedAggregators combines both RSS feeds and job boards for seeding.
-// This is used by SeedAggregators to populate the database.
-var embeddedAggregators = []struct {
-	Name      string
-	SourceURL string
-	Type      string
-}{
-	// RSS Feed aggregators
-	// {"DOU Jobs", "https://jobs.dou.ua/vacancies/feeds/", "rss_feed"},
-	// {"Jobicy", "https://jobicy.com/feed/job_feed", "rss_feed"},
-	// {"Real Work From Anywhere", "https://www.realworkfromanywhere.com/rss.xml", "rss_feed"},
-	// Job board aggregators (scrapers)
-	{"Secret TLV", "https://jobs.secrettelaviv.com/", "scraper"},
-	// {"Telfed Job Board", "https://www.telfed.org.il/job-board/", "scraper"},
-}
