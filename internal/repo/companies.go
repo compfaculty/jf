@@ -81,10 +81,10 @@ var embeddedAggregators = []struct {
 	Type      string
 }{
 	// RSS Feed aggregators
-	{"DOU Jobs", "https://jobs.dou.ua/vacancies/feeds/", "rss_feed"},
-	{"Jobicy", "https://jobicy.com/feed/job_feed", "rss_feed"},
-	{"Real Work From Anywhere", "https://www.realworkfromanywhere.com/rss.xml", "rss_feed"},
+	// {"DOU Jobs", "https://jobs.dou.ua/vacancies/feeds/", "rss_feed"},
+	// {"Jobicy", "https://jobicy.com/feed/job_feed", "rss_feed"},
+	// {"Real Work From Anywhere", "https://www.realworkfromanywhere.com/rss.xml", "rss_feed"},
 	// Job board aggregators (scrapers)
 	{"Secret TLV", "https://jobs.secrettelaviv.com/", "scraper"},
-	{"Telfed Job Board", "https://www.telfed.org.il/job-board/", "scraper"},
+	// {"Telfed Job Board", "https://www.telfed.org.il/job-board/", "scraper"},
 }

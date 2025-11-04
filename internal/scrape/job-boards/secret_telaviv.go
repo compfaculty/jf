@@ -15,11 +15,22 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+)
+
+// Pre-compiled regex patterns for performance
+var (
+	// companyNameRegex matches text between <span class="wpjb-top-header-title"> and <ul class="wpjb-top-header-subtitle">
+	companyNameRegex = regexp.MustCompile(`(?s)<span class="wpjb-top-header-title">\s*(.+?)\s*<ul class="wpjb-top-header-subtitle">`)
+	// htmlTagRegex matches any HTML tag for cleanup
+	htmlTagRegex = regexp.MustCompile(`<[^>]+>`)
+	// postedDateRegex matches <i>Published: ...</i> with multiline support
+	postedDateRegex = regexp.MustCompile(`(?s)<i>\s*Published:\s*(.+?)\s*</i>`)
 )
 
 // SecretTelAviv scraper for jobs.secrettelaviv.com pages.
@@ -49,7 +60,6 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 
 	parsePage := func(doc *goquery.Document) []models.ScrapedJob {
 		var out []models.ScrapedJob
-		now := time.Now()
 
 		doc.Find("div.wpjb-grid-row").Each(func(_ int, row *goquery.Selection) {
 			a := row.Find("div.wpjb-col-title a").First()
@@ -65,20 +75,20 @@ func (s *SecretTelAviv) GetJobs(ctx context.Context, cfg *config.Config) ([]mode
 				return
 			}
 
-			dateRaw := strings.TrimSpace(row.Find("div.wpjb-grid-col-right span.wpjb-line-major").First().Text())
-			// 1) date filter: ignore if older than ~1 month (31 days)
-			if ts, ok := parseDateSTA(dateRaw, now.Location()); ok {
-				if now.Sub(ts) > 31*24*time.Hour {
-					return
-				}
-			}
+			// dateRaw := strings.TrimSpace(row.Find("div.wpjb-grid-col-right span.wpjb-line-major").First().Text())
+			// // 1) date filter: ignore if older than ~1 month (31 days)
+			// if ts, ok := parseDateSTA(dateRaw, now.Location()); ok {
+			// 	if now.Sub(ts) > 31*24*time.Hour {
+			// 		return
+			// 	}
+			// }
 
 			out = append(out, models.ScrapedJob{
 				Title:       title,
 				URL:         href,
 				Description: "", // Will be extracted in fetchJobMetadata or fallback to title in board_source
-				Company:     s.company.Name,
-				DatePosted:  dateRaw,
+				Company:     "",
+				DatePosted:  "",
 			})
 		})
 		return out
@@ -193,7 +203,7 @@ func (s *SecretTelAviv) fetchDoc(ctx context.Context, u string) (*goquery.Docume
 // fetchJobMetadata GETs the job page, extracts metadata, and checks if inactive.
 // Returns (ok, inactive, companyName, postedDate, description, location).
 func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bool, bool, string, string, string, string) {
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, jobURL, nil)
@@ -237,34 +247,36 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 
 	// Check if the page has the job board structure (wpjb-page-single is required for active jobs)
 	// Inactive jobs like bluespine-automation-engineer have empty post-content without this div
-	hasJobStructure := doc.Find(".post-content .wpjb.wpjb-job.wpjb-page-single").Length() > 0
-	if !hasJobStructure {
-		// This is likely an inactive job (empty post-content, no job board structure)
-		return true, true, "", "", "", ""
-	}
+	// hasJobStructure := doc.Find(".post-content .wpjb.wpjb-job.wpjb-page-single").Length() > 0
+	// if !hasJobStructure {
+	// 	// This is likely an inactive job (empty post-content, no job board structure)
+	// 	return true, true, "", "", "", ""
+	// }
 
-	// Extract company name and posted date from .wpjb-top-header-title
-	// Format: "Lusha 9 active jobs (view) Published: October 27, 2025"
-	headerTitleText := strings.TrimSpace(doc.Find(".wpjb-top-header-title").First().Text())
+	// Extract company name and posted date from .wpjb-top-header-content using regex
+	// Get the header content div as raw HTML text
 	var companyName, postedDate string
 
-	if headerTitleText != "" {
-		// Extract date: look for "Published: " prefix
-		if idx := strings.Index(headerTitleText, "Published: "); idx != -1 {
-			postedDate = strings.TrimSpace(headerTitleText[idx+len("Published: "):])
-			// Extract company name from the part before "Published: "
-			beforePublished := strings.TrimSpace(headerTitleText[:idx])
-			// Extract first word (company name) - it's typically before numbers or "active jobs"
-			// Split by space and take the first token
-			parts := strings.Fields(beforePublished)
-			if len(parts) > 0 {
-				companyName = parts[0]
+	headerContent := doc.Find(".wpjb-top-header-content").First()
+	if headerContent.Length() > 0 {
+		// Get the raw HTML text of the header content
+		htmlContent, err := headerContent.Html()
+		if err == nil && htmlContent != "" {
+			// 1. Extract company name: text between <span class="wpjb-top-header-title"> and <ul class="wpjb-top-header-subtitle">
+			// Using pre-compiled multiline regex to match across line breaks
+			companyMatches := companyNameRegex.FindStringSubmatch(htmlContent)
+			if len(companyMatches) > 1 {
+				// Extract text content and clean it up
+				companyText := companyMatches[1]
+				// Remove any HTML tags that might be inside
+				companyText = htmlTagRegex.ReplaceAllString(companyText, "")
+				companyName = strings.TrimSpace(utils.JoinWS(companyText))
 			}
-		} else {
-			// Fallback: if no "Published:" found, try to extract company name from first word
-			parts := strings.Fields(headerTitleText)
-			if len(parts) > 0 {
-				companyName = parts[0]
+
+			// 2. Extract posted date: match <i>Published: ...</i> with pre-compiled multiline regex
+			dateMatches := postedDateRegex.FindStringSubmatch(htmlContent)
+			if len(dateMatches) > 1 {
+				postedDate = strings.TrimSpace(dateMatches[1])
 			}
 		}
 	}
@@ -288,25 +300,28 @@ func (s *SecretTelAviv) fetchJobMetadata(ctx context.Context, jobURL string) (bo
 		}
 	}
 
-	// Extract location from .wpjb-row-meta-location_stlv .wpjb-col-60
-	// This selector directly targets the location value (e.g., "Tel Aviv/ Ramat Gan")
+	// Extract location: find "Location of job" label, then get the adjacent value
 	var location string
-	locationElem := doc.Find(".wpjb-row-meta-location_stlv .wpjb-col-60").First()
-	if locationElem.Length() > 0 {
-		location = strings.TrimSpace(utils.JoinWS(locationElem.Text()))
-	} else {
-		// Fallback: try alternative selector structure
-		locationElem = doc.Find(".wpjb-grid-row.wpjb-row-meta-location_stlv .wpjb-col-60").First()
-		if locationElem.Length() > 0 {
-			location = strings.TrimSpace(utils.JoinWS(locationElem.Text()))
+	// Find the div with "Location of job" text
+	locationLabel := doc.Find("div.wpjb-grid-col.wpjb-col-35").FilterFunction(func(_ int, s *goquery.Selection) bool {
+		return strings.Contains(s.Text(), "Location of job")
+	}).First()
+
+	if locationLabel.Length() > 0 {
+		// Find the adjacent div with class wpjb-col-60 in the same parent
+		locationValue := locationLabel.Siblings().Filter(".wpjb-grid-col.wpjb-col-60").First()
+		if locationValue.Length() == 0 {
+			// Try parent's next sibling or same row
+			locationValue = locationLabel.Parent().Find(".wpjb-grid-col.wpjb-col-60").First()
+		}
+		if locationValue.Length() > 0 {
+			location = strings.TrimSpace(utils.JoinWS(locationValue.Text()))
 		}
 	}
 
 	return true, false, companyName, postedDate, description, location
 }
 
-// isInactive GETs the job page and detects the WPJB inactive message.
-// Returns (ok, inactive).
 func (s *SecretTelAviv) isInactive(ctx context.Context, jobURL string) (bool, bool) {
 	ok, inactive, _, _, _, _ := s.fetchJobMetadata(ctx, jobURL)
 	return ok, inactive
