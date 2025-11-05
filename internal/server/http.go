@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -343,7 +345,13 @@ func applyViaEmail(ctx context.Context, job models.Job, cfg *config.Config) (boo
 
 	atts := []string{}
 	if strings.TrimSpace(cvPath) != "" {
-		atts = append(atts, cvPath)
+		// Verify CV file exists before adding as attachment
+		if st, err := os.Stat(cvPath); err == nil && !st.IsDir() && strings.EqualFold(filepath.Ext(cvPath), ".pdf") {
+			atts = append(atts, cvPath)
+		} else if err != nil {
+			log.Printf("[APPLY][EMAIL] CV file not found or invalid: %q (error: %v)", cvPath, err)
+			// Continue without attachment - email will still be sent
+		}
 	}
 
 	if err := mailer.Send([]string{strings.TrimSpace(job.HREmail)}, subj, body.String(), atts); err != nil {

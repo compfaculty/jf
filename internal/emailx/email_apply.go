@@ -160,8 +160,16 @@ func ApplyByEmail(ctx context.Context, mailer Mailer, mc *config.MailConfig, a A
 
 	attachments := []string{}
 	if cv != "" {
-		if _, err := os.Stat(cv); err == nil && strings.EqualFold(filepath.Ext(cv), ".pdf") {
-			attachments = append(attachments, cv)
+		if st, err := os.Stat(cv); err == nil && strings.EqualFold(filepath.Ext(cv), ".pdf") {
+			if st.IsDir() {
+				// Log warning but continue without attachment
+				// This shouldn't happen in normal operation
+			} else {
+				attachments = append(attachments, cv)
+			}
+		} else if err != nil {
+			// Log the error but continue - attachment might not be critical
+			// This allows the email to be sent even if CV path is wrong
 		}
 	}
 

@@ -389,14 +389,19 @@ func (s *SecretTelAviv) ApplyJobs(ctx context.Context, jobs []models.Job, cfg *c
 
 	// --- Path normalization & validation (handles ~, $HOME, backslashes on Linux, etc) ---
 	cvRaw := strings.TrimSpace(p.CVPath)
+	if cvRaw == "" {
+		return nil, fmt.Errorf("cv_path is empty in config")
+	}
 	cv, normErr := normalizePath(cvRaw)
 	utils.Verbosef("[STA] config CV raw=%q normalized=%q goos=%s", cvRaw, cv, runtime.GOOS)
 	if normErr != nil {
-		return nil, fmt.Errorf("cv path invalid: %v", normErr)
+		return nil, fmt.Errorf("cv path invalid: raw=%q error=%v", cvRaw, normErr)
 	}
 	st, err := os.Stat(cv)
 	if err != nil {
-		return nil, fmt.Errorf("cv not found: %s (stat err: %v)", cv, err)
+		// Try to provide helpful error message
+		cwd, _ := os.Getwd()
+		return nil, fmt.Errorf("cv not found: %s (normalized from %q, cwd=%s, stat err: %v)", cv, cvRaw, cwd, err)
 	}
 	if st.IsDir() {
 		return nil, fmt.Errorf("cv path is a directory: %s", cv)
@@ -712,28 +717,61 @@ func drain(rc io.ReadCloser) error {
 // normalizePath fixes common issues in user-supplied paths:
 // - expands env vars ($HOME) and ~
 // - on non-Windows, converts backslashes to slashes
+// - on Windows, handles both forward and backward slashes
 // - Clean + Abs for stability
+// - Resolves relative paths relative to current working directory
 func normalizePath(p string) (string, error) {
 	if p == "" {
-		return "", fmt.Errorf("empty")
+		return "", fmt.Errorf("empty path")
 	}
+	
+	// Expand environment variables
 	p = os.ExpandEnv(p)
+	
+	// Handle home directory expansion (~)
 	if strings.HasPrefix(p, "~") {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %v", err)
+		}
 		if home != "" {
 			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
 		}
 	}
-	// If running on non-windows and path uses backslashes, flip them.
+	
+	// On non-Windows, convert backslashes to slashes
 	if runtime.GOOS != "windows" && strings.Contains(p, `\`) {
 		p = strings.ReplaceAll(p, `\`, `/`)
 	}
+	
+	// Clean the path (removes .., ., extra slashes, etc)
 	p = filepath.Clean(p)
+	
+	// Convert to absolute path if relative
 	if !filepath.IsAbs(p) {
-		if ap, err := filepath.Abs(p); err == nil {
-			p = ap
+		// Get current working directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get working directory: %v", err)
+		}
+		// Resolve relative path
+		p = filepath.Join(cwd, p)
+		// Clean again after joining
+		p = filepath.Clean(p)
+	}
+	
+	// On Windows, ensure we normalize backslashes properly
+	// filepath.Clean already handles this, but we can ensure consistency
+	if runtime.GOOS == "windows" {
+		// filepath.Clean on Windows already normalizes, but ensure absolute paths work
+		if !filepath.IsAbs(p) {
+			// Should not happen at this point, but double-check
+			if abs, err := filepath.Abs(p); err == nil {
+				p = abs
+			}
 		}
 	}
+	
 	return p, nil
 }
 
