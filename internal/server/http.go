@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -219,6 +220,22 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 					}
 				}
 
+				// Fallback: if source not found, try to match by job URL pattern
+				if source == nil && j.URL != "" {
+					if agg := findAggregatorByURL(j.URL, aggregators); agg != nil {
+						// Get or create company for aggregator
+						company := models.Company{
+							Name:       agg.Name,
+							CareersURL: agg.SourceURL,
+							Active:     agg.Active,
+						}
+						if err := r.UpsertCompanyByName(gctx, &company); err == nil {
+							source = scrape.NewJobSource(company, agg, http.DefaultClient, bp, wp, feedParser, r)
+							log.Printf("[APPLY] id=%s found source via URL fallback: %s", j.ID, agg.Name)
+						}
+					}
+				}
+
 				// If we have HR email on the job, prefer emailing CV directly
 				if strings.TrimSpace(j.HREmail) != "" {
 					ok, errMsg = applyViaEmail(gctx, j, cfg)
@@ -423,6 +440,46 @@ func handleSSEStream(w http.ResponseWriter, req *http.Request, broker *Broker, s
 			}
 		}
 	}
+}
+
+// findAggregatorByURL attempts to find an aggregator by matching the job URL
+// hostname with aggregator SourceURL patterns. Returns the first matching aggregator
+// or nil if no match is found.
+func findAggregatorByURL(jobURL string, aggregators []models.Aggregator) *models.Aggregator {
+	parsedURL, err := url.Parse(jobURL)
+	if err != nil {
+		return nil
+	}
+
+	jobHostname := strings.ToLower(parsedURL.Hostname())
+	if jobHostname == "" {
+		return nil
+	}
+
+	// Remove common prefixes for better matching
+	jobHostname = strings.TrimPrefix(jobHostname, "www.")
+	jobHostname = strings.TrimPrefix(jobHostname, "jobs.")
+
+	// Check each aggregator's SourceURL for a hostname match
+	for i := range aggregators {
+		aggURL, err := url.Parse(aggregators[i].SourceURL)
+		if err != nil {
+			continue
+		}
+
+		aggHostname := strings.ToLower(aggURL.Hostname())
+		aggHostname = strings.TrimPrefix(aggHostname, "www.")
+		aggHostname = strings.TrimPrefix(aggHostname, "jobs.")
+
+		// Match if hostnames are equal (exact match after trimming prefixes)
+		// This handles cases like "jobs.secrettelaviv.com" matching "jobs.secrettelaviv.com"
+		// or "secrettelaviv.com" matching "jobs.secrettelaviv.com"
+		if jobHostname == aggHostname {
+			return &aggregators[i]
+		}
+	}
+
+	return nil
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
