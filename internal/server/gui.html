@@ -74,9 +74,149 @@
             text-decoration: none;
         }
 
+        .sidebar-toggle {
+            background: transparent;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            padding: 8px;
+            font-size: 18px;
+            opacity: .85;
+            transition: opacity .15s ease;
+        }
+
+        .sidebar-toggle:hover {
+            opacity: 1;
+        }
+
+        .sidebar-toggle:focus-visible {
+            box-shadow: 0 0 0 3px color-mix(in oklab, var(--focus) 60%, transparent 40%);
+            border-radius: 4px;
+        }
+
         .layout-container {
             display: flex;
             height: calc(100vh - 57px); /* header height */
+        }
+
+        .sidebar {
+            width: 280px;
+            background: var(--bg-elev);
+            border-right: 1px solid var(--border);
+            transition: transform 0.3s ease, width 0.3s ease;
+            overflow-y: auto;
+            overflow-x: hidden;
+            flex-shrink: 0;
+        }
+
+        .sidebar-collapsed {
+            transform: translateX(-100%);
+            width: 0;
+            border-right: none;
+        }
+
+        .sidebar-content {
+            padding: 16px;
+        }
+
+        .sidebar-title {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--fg);
+        }
+
+        .cv-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .cv-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            user-select: none;
+        }
+
+        .cv-option:hover {
+            background: color-mix(in oklab, var(--bg-elev) 85%, white 15%);
+        }
+
+        .cv-option input[type="radio"] {
+            margin: 0;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            accent-color: var(--brand);
+        }
+
+        .cv-option span {
+            flex: 1;
+            font-size: 13px;
+            color: var(--fg);
+            word-break: break-word;
+        }
+
+        .cv-option input[type="radio"]:checked + span {
+            color: var(--brand);
+            font-weight: 500;
+        }
+
+        .cv-upload-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .cv-upload-btn {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+            color: inherit;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .cv-upload-btn:hover {
+            background: color-mix(in oklab, var(--bg-elev) 85%, white 15%);
+            border-color: var(--brand);
+        }
+
+        .cv-upload-btn:active {
+            transform: translateY(1px);
+        }
+
+        .cv-upload-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .cv-upload-status {
+            margin-top: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .cv-upload-status.success {
+            background: color-mix(in oklab, var(--brand) 20%, transparent 80%);
+            color: var(--brand);
+            border: 1px solid color-mix(in oklab, var(--brand) 40%, transparent 60%);
+        }
+
+        .cv-upload-status.error {
+            background: color-mix(in oklab, var(--red) 20%, transparent 80%);
+            color: var(--red);
+            border: 1px solid color-mix(in oklab, var(--red) 40%, transparent 60%);
         }
 
         main {
@@ -84,6 +224,7 @@
             padding: 16px;
             overflow-y: auto;
             max-width: none;
+            transition: margin-left 0.3s ease;
         }
 
         /* Controls */
@@ -362,6 +503,23 @@
                 flex-direction: column;
             }
 
+            .sidebar {
+                position: fixed;
+                top: 57px;
+                left: 0;
+                height: calc(100vh - 57px);
+                z-index: 20;
+                box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+            }
+
+            .sidebar-collapsed {
+                transform: translateX(-100%);
+            }
+
+            main {
+                margin-left: 0;
+            }
+
             .row {
                 grid-template-columns: 24px 1fr 1fr;
                 grid-auto-rows: auto;
@@ -451,11 +609,30 @@
 </head>
 <body>
 <header>
+    <button id="sidebarToggle" class="sidebar-toggle" aria-label="Toggle CV selection menu" title="Toggle CV selection">
+        <span class="sidebar-toggle-icon">☰</span>
+    </button>
     <div class="title">Job Finder v2</div>
     <span class="sep"></span>
     <a class="link" href="#" id="helpLink" aria-label="Help">Help</a>
 </header>
 <div class="layout-container">
+    <aside id="sidebar" class="sidebar sidebar-collapsed">
+        <div class="sidebar-content">
+            <h3 class="sidebar-title">Select CV</h3>
+            <div id="cvList" class="cv-list" role="radiogroup" aria-label="CV selection">
+                <label class="cv-option">
+                    <input type="radio" name="cv" value="" id="cv-none" checked>
+                    <span>None (use auto)</span>
+                </label>
+            </div>
+            <div class="cv-upload-section">
+                <input type="file" id="cvFileInput" accept=".pdf" style="display: none;">
+                <button id="cvUploadBtn" class="cv-upload-btn">Upload CV</button>
+                <div id="cvUploadStatus" class="cv-upload-status" style="display: none;"></div>
+            </div>
+        </div>
+    </aside>
     <main>
     <section aria-labelledby="scan-heading">
         <h2 id="scan-heading" class="sr-only">Scanning</h2>
@@ -541,6 +718,12 @@
     const selCount = $("#selCount");
     const limitSel = $("#limitSel");
     const hideApplied = $("#hideApplied");
+    const sidebar = $("#sidebar");
+    const sidebarToggle = $("#sidebarToggle");
+    const cvList = $("#cvList");
+    const cvFileInput = $("#cvFileInput");
+    const cvUploadBtn = $("#cvUploadBtn");
+    const cvUploadStatus = $("#cvUploadStatus");
 
     // ------- State -------
     let pollTimer = null;
@@ -549,10 +732,226 @@
     let total = 0;
     let jobsAbort = null; // cancel in-flight /api/jobs
     let sseConnection = null; // SSE EventSource connection
+    let selectedCVPath = localStorage.getItem("jf.selected_cv_path") || "";
 
     // Apply stored page size
     if ([10, 25, 50, 100].includes(limit)) limitSel.value = String(limit);
     else limit = 25;
+
+    // ------- Sidebar Toggle -------
+    sidebarToggle.addEventListener('click', () => {
+        sidebar.classList.toggle('sidebar-collapsed');
+        const isCollapsed = sidebar.classList.contains('sidebar-collapsed');
+        localStorage.setItem('jf.sidebar_collapsed', isCollapsed ? 'true' : 'false');
+    });
+
+    // Restore sidebar state from localStorage
+    const sidebarCollapsed = localStorage.getItem('jf.sidebar_collapsed') === 'true';
+    if (sidebarCollapsed) {
+        sidebar.classList.add('sidebar-collapsed');
+    }
+
+    // ------- CV Selection -------
+    async function loadCVList() {
+        try {
+            const res = await fetchJSON('/api/cv/list');
+            const cvs = res.cvs || [];
+            
+            // Keep "None" option and clear the rest
+            const noneOption = document.getElementById('cv-none').closest('.cv-option');
+            const noneHTML = noneOption.outerHTML;
+            cvList.innerHTML = noneHTML;
+            
+            // Re-attach change listener for "None" option
+            document.getElementById('cv-none').addEventListener('change', () => {
+                if (document.getElementById('cv-none').checked) {
+                    selectedCVPath = '';
+                    localStorage.setItem('jf.selected_cv_path', '');
+                }
+            });
+            
+            // Add CV options
+            cvs.forEach(cv => {
+                const label = document.createElement('label');
+                label.className = 'cv-option';
+                const radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = 'cv';
+                radio.value = cv.path;
+                radio.id = `cv-${cv.filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                const span = document.createElement('span');
+                span.textContent = cv.filename;
+                label.appendChild(radio);
+                label.appendChild(span);
+                cvList.appendChild(label);
+                
+                // Add change listener
+                radio.addEventListener('change', () => {
+                    if (radio.checked) {
+                        selectedCVPath = cv.path;
+                        localStorage.setItem('jf.selected_cv_path', selectedCVPath);
+                    }
+                });
+            });
+            
+            // Set initial selection
+            await setInitialCVSelection(cvs);
+        } catch (e) {
+            console.warn('Failed to load CV list:', e);
+            toast('Failed to load CVs', e.message || String(e), true);
+        }
+    }
+
+    async function setInitialCVSelection(cvs) {
+        let cvPathToSelect = '';
+        
+        // Try to get from config first
+        try {
+            const configRes = await fetchJSON('/api/config/cv');
+            const configPath = (configRes.cv_path || '').trim();
+            if (configPath) {
+                // Check if config path matches any CV in the list
+                const matchedCV = cvs.find(cv => {
+                    // Normalize paths for comparison
+                    const normalizedConfig = configPath.replace(/\\/g, '/');
+                    const normalizedCV = cv.path.replace(/\\/g, '/');
+                    return normalizedConfig === normalizedCV || 
+                           configPath.endsWith(cv.filename) ||
+                           normalizedConfig.endsWith(cv.filename);
+                });
+                if (matchedCV) {
+                    cvPathToSelect = matchedCV.path;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to get CV from config:', e);
+        }
+        
+        // Fallback to localStorage if no config match
+        if (!cvPathToSelect && selectedCVPath) {
+            const matchedCV = cvs.find(cv => {
+                const normalizedSelected = selectedCVPath.replace(/\\/g, '/');
+                const normalizedCV = cv.path.replace(/\\/g, '/');
+                return normalizedSelected === normalizedCV;
+            });
+            if (matchedCV) {
+                cvPathToSelect = matchedCV.path;
+            }
+        }
+        
+        // Select the radio button
+        if (cvPathToSelect) {
+            // Find radio button by checking all CV radio inputs
+            const allCVRadios = cvList.querySelectorAll('input[type="radio"][name="cv"]');
+            let found = false;
+            for (const radio of allCVRadios) {
+                if (radio.value === cvPathToSelect) {
+                    radio.checked = true;
+                    selectedCVPath = cvPathToSelect;
+                    localStorage.setItem('jf.selected_cv_path', selectedCVPath);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                // If no match, select "None"
+                document.getElementById('cv-none').checked = true;
+                selectedCVPath = '';
+                localStorage.setItem('jf.selected_cv_path', '');
+            }
+        } else {
+            // Select "None" by default
+            document.getElementById('cv-none').checked = true;
+            selectedCVPath = '';
+            localStorage.setItem('jf.selected_cv_path', '');
+        }
+    }
+
+    // Load CV list on page load
+    loadCVList();
+
+    // ------- CV Upload -------
+    cvUploadBtn.addEventListener('click', () => {
+        cvFileInput.click();
+    });
+
+    cvFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Validate file type
+        if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+            showUploadStatus('Only PDF files are allowed', 'error');
+            cvFileInput.value = ''; // Reset input
+            return;
+        }
+
+        // Validate file size (10MB limit)
+        if (file.size > 10 * 1024 * 1024) {
+            showUploadStatus('File size must be less than 10MB', 'error');
+            cvFileInput.value = '';
+            return;
+        }
+
+        // Show uploading state
+        cvUploadBtn.disabled = true;
+        cvUploadBtn.textContent = 'Uploading...';
+        showUploadStatus('Uploading...', 'success');
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await fetch('/api/cv/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(errorText || `Upload failed: ${res.status}`);
+            }
+
+            const data = await res.json();
+            showUploadStatus(`Uploaded: ${data.filename}`, 'success');
+            
+            // Reload CV list and select the newly uploaded CV
+            await loadCVList();
+            
+            // Select the newly uploaded CV
+            const allCVRadios = cvList.querySelectorAll('input[type="radio"][name="cv"]');
+            for (const radio of allCVRadios) {
+                if (radio.value === data.path) {
+                    radio.checked = true;
+                    selectedCVPath = data.path;
+                    localStorage.setItem('jf.selected_cv_path', selectedCVPath);
+                    break;
+                }
+            }
+
+            // Hide success message after 3 seconds
+            setTimeout(() => {
+                cvUploadStatus.style.display = 'none';
+            }, 3000);
+        } catch (e) {
+            console.error('CV upload error:', e);
+            showUploadStatus(e.message || 'Upload failed', 'error');
+            // Hide error message after 5 seconds
+            setTimeout(() => {
+                cvUploadStatus.style.display = 'none';
+            }, 5000);
+        } finally {
+            cvUploadBtn.disabled = false;
+            cvUploadBtn.textContent = 'Upload CV';
+            cvFileInput.value = ''; // Reset input
+        }
+    });
+
+    function showUploadStatus(message, type) {
+        cvUploadStatus.textContent = message;
+        cvUploadStatus.className = `cv-upload-status ${type}`;
+        cvUploadStatus.style.display = 'block';
+    }
 
     // ------- Scan -------
     scanBtn.addEventListener('click', async () => {
@@ -905,13 +1304,19 @@
         const ids = selectedIDs();
         if (!ids.length) return;
         try {
+            const body = {ids};
+            // Include CV path if one is selected (not "None")
+            if (selectedCVPath && selectedCVPath.trim() !== '') {
+                body.cv_path = selectedCVPath;
+            }
             const res = await fetchJSON('/api/apply', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ids})
+                body: JSON.stringify(body)
             });
             await loadJobs();
-            toast('Applied', `Applied to ${res.updated ?? ids.length} job(s).`);
+            const cvMsg = selectedCVPath ? ` (using ${selectedCVPath.split('/').pop()})` : '';
+            toast('Applied', `Applied to ${res.updated ?? ids.length} job(s)${cvMsg}.`);
         } catch (e) {
             toast('Apply failed', e.message || String(e), true);
         }

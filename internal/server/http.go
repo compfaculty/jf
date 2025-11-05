@@ -79,6 +79,92 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 		writeJSON(w, http.StatusOK, metrics)
 	})
 
+	// CV list endpoint - scan /data folder for PDF files
+	mux.Get("/api/cv/list", func(w http.ResponseWriter, _ *http.Request) {
+		cvs, err := listCVFiles("data")
+		if err != nil {
+			log.Printf("[CV] list error: %v", err)
+			http.Error(w, fmt.Sprintf("failed to list CV files: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cvs": cvs})
+	})
+
+	// CV upload endpoint - upload PDF file to /data folder
+	mux.Post("/api/cv/upload", func(w http.ResponseWriter, req *http.Request) {
+		// Parse multipart form (max 10MB)
+		if err := req.ParseMultipartForm(10 << 20); err != nil {
+			log.Printf("[CV] upload parse error: %v", err)
+			http.Error(w, fmt.Sprintf("failed to parse form: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		file, header, err := req.FormFile("file")
+		if err != nil {
+			log.Printf("[CV] upload form file error: %v", err)
+			http.Error(w, fmt.Sprintf("no file provided: %v", err), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		// Validate file extension
+		filename := header.Filename
+		if !strings.EqualFold(filepath.Ext(filename), ".pdf") {
+			http.Error(w, "only PDF files are allowed", http.StatusBadRequest)
+			return
+		}
+
+		// Sanitize filename (remove path components, keep only safe characters)
+		filename = filepath.Base(filename)
+		filename = strings.ReplaceAll(filename, "..", "")
+		filename = strings.TrimSpace(filename)
+		if filename == "" {
+			http.Error(w, "invalid filename", http.StatusBadRequest)
+			return
+		}
+
+		// Create /data directory if it doesn't exist
+		dataDir := "data"
+		if err := os.MkdirAll(dataDir, 0755); err != nil {
+			log.Printf("[CV] upload mkdir error: %v", err)
+			http.Error(w, fmt.Sprintf("failed to create data directory: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Save file to /data folder
+		dstPath := filepath.Join(dataDir, filename)
+		dstFile, err := os.Create(dstPath)
+		if err != nil {
+			log.Printf("[CV] upload create file error: %v", err)
+			http.Error(w, fmt.Sprintf("failed to save file: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer dstFile.Close()
+
+		if _, err := dstFile.ReadFrom(file); err != nil {
+			dstFile.Close()
+			os.Remove(dstPath) // Clean up on error
+			log.Printf("[CV] upload write error: %v", err)
+			http.Error(w, fmt.Sprintf("failed to write file: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Normalize path for response
+		normalizedPath := strings.ReplaceAll(dstPath, "\\", "/")
+
+		log.Printf("[CV] uploaded: %s", normalizedPath)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"filename": filename,
+			"path":     normalizedPath,
+		})
+	})
+
+	// Config CV endpoint - return current CV path from config
+	mux.Get("/api/config/cv", func(w http.ResponseWriter, _ *http.Request) {
+		cvPath := strings.TrimSpace(cfg.ApplyForm.CVPath)
+		writeJSON(w, http.StatusOK, map[string]any{"cv_path": cvPath})
+	})
+
 	// RSS Feed endpoints
 	if fm != nil {
 		mux.Get("/api/feed/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -133,13 +219,14 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 
 	mux.Post("/api/apply", func(w http.ResponseWriter, req *http.Request) {
 		var body struct {
-			IDs []string `json:"ids"`
+			IDs    []string `json:"ids"`
+			CVPath string   `json:"cv_path"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
-		log.Printf("[APPLY] request ids=%v", body.IDs)
+		log.Printf("[APPLY] request ids=%v cv_path=%q", body.IDs, body.CVPath)
 
 		if len(body.IDs) == 0 {
 			writeJSON(w, http.StatusOK, map[string]any{"updated": 0})
@@ -241,7 +328,8 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 
 				// If we have HR email on the job, prefer emailing CV directly
 				if strings.TrimSpace(j.HREmail) != "" {
-					ok, errMsg = applyViaEmail(gctx, j, cfg)
+					cvPath := strings.TrimSpace(body.CVPath)
+					ok, errMsg = applyViaEmail(gctx, j, cfg, cvPath)
 					if ok {
 						log.Printf("[APPLY][EMAIL] id=%s to=%s ok", j.ID, j.HREmail)
 					} else {
@@ -336,7 +424,8 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 // applyViaEmail sends application via email to HR email.
-func applyViaEmail(ctx context.Context, job models.Job, cfg *config.Config) (bool, string) {
+// If cvPathOverride is provided and non-empty, it will be used instead of automatic selection.
+func applyViaEmail(ctx context.Context, job models.Job, cfg *config.Config, cvPathOverride string) (bool, string) {
 	mailer := emailx.BuildSMTPMailer(&cfg.Mail)
 	applicant := emailx.Applicant{
 		FullName: strings.TrimSpace(cfg.ApplyForm.FirstName + " " + cfg.ApplyForm.LastName),
@@ -345,7 +434,16 @@ func applyViaEmail(ctx context.Context, job models.Job, cfg *config.Config) (boo
 	}
 
 	subj := "Application: " + job.Title + " — " + applicant.FullName
-	cvPath, _ := emailx.ChooseResume(job.Title, &cfg.Mail)
+	
+	// Use override if provided, otherwise use automatic selection
+	var cvPath string
+	if strings.TrimSpace(cvPathOverride) != "" {
+		cvPath = strings.TrimSpace(cvPathOverride)
+		log.Printf("[APPLY][EMAIL] using override CV: %q", cvPath)
+	} else {
+		cvPath, _ = emailx.ChooseResume(job.Title, &cfg.Mail)
+		log.Printf("[APPLY][EMAIL] using auto-selected CV: %q", cvPath)
+	}
 
 	body := strings.Builder{}
 	if strings.TrimSpace(applicant.FullName) != "" {
@@ -483,6 +581,35 @@ func findAggregatorByURL(jobURL string, aggregators []models.Aggregator) *models
 	}
 
 	return nil
+}
+
+// listCVFiles scans the specified directory for PDF files and returns them with their paths.
+func listCVFiles(dir string) ([]map[string]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read dir %q: %w", dir, err)
+	}
+
+	var cvs []map[string]string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// Check if file has .pdf extension (case-insensitive)
+		if !strings.EqualFold(filepath.Ext(name), ".pdf") {
+			continue
+		}
+		// Use relative path from project root
+		path := filepath.Join(dir, name)
+		// Normalize path separators to forward slashes for consistency
+		path = strings.ReplaceAll(path, "\\", "/")
+		cvs = append(cvs, map[string]string{
+			"filename": name,
+			"path":     path,
+		})
+	}
+	return cvs, nil
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
