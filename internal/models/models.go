@@ -33,10 +33,11 @@ type Job struct {
 
 // JobQuery Filters for GET /api/jobs
 type JobQuery struct {
-	CompanyID string `json:"company_id,omitempty"`
-	Q         string `json:"q,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Offset    int    `json:"offset,omitempty"`
+	CompanyID   string `json:"company_id,omitempty"`
+	Q           string `json:"q,omitempty"`
+	HideApplied bool   `json:"hide_applied,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
+	Offset      int    `json:"offset,omitempty"`
 }
 
 type JobPage struct {

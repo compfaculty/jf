@@ -108,11 +108,14 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 			offset = 0
 		}
 
+		hideApplied := req.URL.Query().Get("hide_applied") == "true"
+
 		q := models.JobQuery{
-			CompanyID: strings.TrimSpace(req.URL.Query().Get("company_id")),
-			Q:         strings.TrimSpace(req.URL.Query().Get("q")),
-			Limit:     limit,
-			Offset:    offset,
+			CompanyID:   strings.TrimSpace(req.URL.Query().Get("company_id")),
+			Q:           strings.TrimSpace(req.URL.Query().Get("q")),
+			HideApplied: hideApplied,
+			Limit:       limit,
+			Offset:      offset,
 		}
 		items, total, err := r.ListJobsPage(req.Context(), q)
 		if err != nil {

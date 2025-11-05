@@ -409,6 +409,10 @@ func (r *SQLiteRepo) ListJobsPage(ctx context.Context, q models.JobQuery) ([]mod
 		args = append(args, like, like, like, like)
 	}
 
+	if q.HideApplied {
+		where = append(where, "j.applied = 0")
+	}
+
 	whereSQL := ""
 	if len(where) > 0 {
 		whereSQL = "WHERE " + strings.Join(where, " AND ")

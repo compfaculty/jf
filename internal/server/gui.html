@@ -487,6 +487,10 @@
                 <input id="q" type="search" placeholder="Search title/description/company/location…" spellcheck="false"
                        autocomplete="off"/>
             </div>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="hideApplied" style="cursor: pointer;"/>
+                <span class="muted">Hide applied</span>
+            </label>
             <button id="refreshBtn">Refresh</button>
             <button id="latestBtn">Show latest</button>
             <button id="applyBtn" class="primary" disabled>Apply selected</button>
@@ -536,6 +540,7 @@
     const selectAll = $("#selectAll");
     const selCount = $("#selCount");
     const limitSel = $("#limitSel");
+    const hideApplied = $("#hideApplied");
 
     // ------- State -------
     let pollTimer = null;
@@ -571,9 +576,9 @@
         // Close existing connection if any
         closeSSEConnection();
         
-        // Only connect if on page 1 with no search filter (real-time updates only for main view)
-        if (offset !== 0 || q.value.trim() !== '') {
-            return; // Don't stream if user is on a different page or has a search
+        // Only connect if on page 1 with no search filter and hide applied is off (real-time updates only for main view)
+        if (offset !== 0 || q.value.trim() !== '' || hideApplied.checked) {
+            return; // Don't stream if user is on a different page, has a search, or is hiding applied
         }
         
         sseConnection = new EventSource('/api/scan/stream');
@@ -628,8 +633,8 @@
     }
     
     function handleNewJob(job) {
-        // Only update UI if on page 1 with no search filter
-        if (offset !== 0 || q.value.trim() !== '') {
+        // Only update UI if on page 1 with no search filter and hide applied is off
+        if (offset !== 0 || q.value.trim() !== '' || hideApplied.checked) {
             return;
         }
         
@@ -790,6 +795,12 @@
         };
     };
 
+    hideApplied.addEventListener('change', () => {
+        offset = 0;
+        closeSSEConnection(); // Close SSE when filtering (real-time only for unfiltered view)
+        loadJobs();
+    });
+
     q.addEventListener('input', debounce(() => {
         offset = 0;
         syncQueryToURL();
@@ -823,6 +834,7 @@
         const params = new URLSearchParams();
         const qv = q.value.trim();
         if (qv) params.set('q', qv);
+        if (hideApplied.checked) params.set('hide_applied', 'true');
         params.set('limit', String(limit));
         params.set('offset', String(offset));
 
