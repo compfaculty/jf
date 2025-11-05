@@ -129,6 +129,17 @@ coverage-repo:
 	go test -coverprofile=repo.out ./internal/repo/...
 	go tool cover -func=repo.out
 
+# Shodan scraper
+.PHONY: shodan-scraper
+
+shodan-scraper:
+	@echo "Running Shodan IP scraper..."
+	go run cmd/shodan-scraper/main.go
+
+shodan-scraper-build:
+	@echo "Building Shodan IP scraper..."
+	go build -o bin/shodan-scraper cmd/shodan-scraper/main.go
+
 # Help target
 help:
 	@echo "Available targets:"
@@ -150,3 +161,5 @@ help:
 	@echo "  test-watch        - Watch for changes and run tests"
 	@echo "  profile-cpu       - Generate CPU profile"
 	@echo "  profile-mem       - Generate memory profile"
+	@echo "  shodan-scraper    - Run Shodan IP scraper"
+	@echo "  shodan-scraper-build - Build Shodan IP scraper binary"
