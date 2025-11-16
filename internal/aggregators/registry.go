@@ -76,11 +76,3 @@ func (r *Registry) GetByName(name string) *models.Aggregator {
 	}
 	return nil
 }
-
-
-
-
-
-
-
-

@@ -1,0 +1,142 @@
+{
+  "uid": "jf-overview",
+  "title": "JF Overview",
+  "tags": ["jf", "jobs", "scrape"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Uptime (s)",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "jf_process_uptime_seconds",
+          "legendFormat": "uptime",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "orientation": "horizontal",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Panics Recovered (total)",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {"expr": "jf_runtime_panics_recovered_total", "refId": "A"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Requests/sec",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_http_requests_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Errors/sec",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_http_errors_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Duration (ms/sec)",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_http_request_duration_ms_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Jobs Scraped/sec",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_jobs_scraped_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Jobs Processed/sec",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_jobs_processed_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scraping Duration (ms/sec)",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_jobs_scraping_duration_ms_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Queries/sec",
+      "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_db_queries_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Errors/sec",
+      "gridPos": {"x": 12, "y": 28, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_db_errors_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Query Duration (ms/sec)",
+      "gridPos": {"x": 0, "y": 36, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_db_query_duration_ms_total[5m])", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Cache Hits/Misses per sec",
+      "gridPos": {"x": 12, "y": 36, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_cache_hits_total[5m])", "refId": "A", "legendFormat": "hits"},
+        {"expr": "rate(jf_cache_misses_total[5m])", "refId": "B", "legendFormat": "misses"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Object Pool Hits/Misses per sec",
+      "gridPos": {"x": 0, "y": 44, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_objectpool_hits_total[5m])", "refId": "A", "legendFormat": "hits"},
+        {"expr": "rate(jf_objectpool_misses_total[5m])", "refId": "B", "legendFormat": "misses"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Allocated/Freed Bytes per sec",
+      "gridPos": {"x": 12, "y": 44, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(jf_memory_allocated_bytes_total[5m])", "refId": "A", "legendFormat": "allocated"},
+        {"expr": "rate(jf_memory_freed_bytes_total[5m])", "refId": "B", "legendFormat": "freed"}
+      ]
+    }
+  ],
+  "templating": {"list": []},
+  "annotations": {"list": [{"builtIn": 1, "name": "Annotations & Alerts", "type": "dashboard", "enable": true}]}
+}

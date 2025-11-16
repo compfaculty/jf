@@ -724,10 +724,10 @@ func normalizePath(p string) (string, error) {
 	if p == "" {
 		return "", fmt.Errorf("empty path")
 	}
-	
+
 	// Expand environment variables
 	p = os.ExpandEnv(p)
-	
+
 	// Handle home directory expansion (~)
 	if strings.HasPrefix(p, "~") {
 		home, err := os.UserHomeDir()
@@ -738,15 +738,15 @@ func normalizePath(p string) (string, error) {
 			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
 		}
 	}
-	
+
 	// On non-Windows, convert backslashes to slashes
 	if runtime.GOOS != "windows" && strings.Contains(p, `\`) {
 		p = strings.ReplaceAll(p, `\`, `/`)
 	}
-	
+
 	// Clean the path (removes .., ., extra slashes, etc)
 	p = filepath.Clean(p)
-	
+
 	// Convert to absolute path if relative
 	if !filepath.IsAbs(p) {
 		// Get current working directory
@@ -759,7 +759,7 @@ func normalizePath(p string) (string, error) {
 		// Clean again after joining
 		p = filepath.Clean(p)
 	}
-	
+
 	// On Windows, ensure we normalize backslashes properly
 	// filepath.Clean already handles this, but we can ensure consistency
 	if runtime.GOOS == "windows" {
@@ -771,7 +771,7 @@ func normalizePath(p string) (string, error) {
 			}
 		}
 	}
-	
+
 	return p, nil
 }
 

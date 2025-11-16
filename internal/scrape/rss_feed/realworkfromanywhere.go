@@ -240,11 +240,3 @@ func (p *RealWorkFromAnywhereParser) extractLocation(doc *goquery.Document, meta
 		}
 	})
 }
-
-
-
-
-
-
-
-

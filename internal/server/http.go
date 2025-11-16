@@ -19,6 +19,7 @@ import (
 	"github.com/alitto/pond"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	promhttp "github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"jf/internal/aggregators"
 	"jf/internal/config"
@@ -78,6 +79,11 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 		metrics := utils.GetMetricsSnapshot()
 		writeJSON(w, http.StatusOK, metrics)
 	})
+
+	// Prometheus metrics endpoint (standard path)
+	mux.Method("GET", "/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		promhttp.Handler().ServeHTTP(w, r)
+	}))
 
 	// CV list endpoint - scan /data folder for PDF files
 	mux.Get("/api/cv/list", func(w http.ResponseWriter, _ *http.Request) {
@@ -434,7 +440,7 @@ func applyViaEmail(ctx context.Context, job models.Job, cfg *config.Config, cvPa
 	}
 
 	subj := "Application: " + job.Title + " — " + applicant.FullName
-	
+
 	// Use override if provided, otherwise use automatic selection
 	var cvPath string
 	if strings.TrimSpace(cvPathOverride) != "" {
