@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	// _ "github.com/marcboeker/go-duckdb/v2"
 
 	"jf/internal/models"
-	"jf/internal/utils"
 )
 
 var _ Repo = (*DuckRepo)(nil)
@@ -30,16 +27,11 @@ type DuckRepo struct {
 // Pass "" to use an in-memory database.
 func NewDuckDB(path string) (*DuckRepo, error) {
 	logger := log.Default()
-	var v string = os.Getenv("JF_DB_DEBUG")
-	v = strings.ToLower(strings.TrimSpace(v))
-	// Check both environment variable and global verbose flag
-	debug := v == "1" || v == "true" || v == "yes" || v == "on" || utils.IsVerbose()
+	debug := getDebugFlag()
 
 	// Ensure parent dir exists if using a file database
 	if path != "" {
-		if dir := filepath.Dir(path); dir != "" && dir != "." && dir != "/" {
-			_ = os.MkdirAll(dir, 0o755)
-		}
+		ensureParentDir(path)
 	}
 
 	// DSN is just the file path ("" means in-memory)
@@ -56,10 +48,9 @@ func NewDuckDB(path string) (*DuckRepo, error) {
 	r := &DuckRepo{db: db, log: logger, debug: debug}
 	r.infof("DB open path=%q driver=duckdb debug=%v", path, debug)
 
-	// health check
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := r.db.PingContext(ctx); err != nil {
+	// Health check
+	ctx := context.Background()
+	if err := pingDB(ctx, r.db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("db ping: %w", err)
 	}

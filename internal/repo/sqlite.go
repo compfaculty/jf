@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	_ "modernc.org/sqlite"
 
 	"jf/internal/models"
-	"jf/internal/utils"
 )
 
 var _ Repo = (*SQLiteRepo)(nil)
@@ -29,15 +27,10 @@ type SQLiteRepo struct {
 // back to DELETE if needed. No migrations are performed—schema is created fresh.
 func NewSQLite(path string) (*SQLiteRepo, error) {
 	logger := log.Default()
-	var v string = os.Getenv("JF_DB_DEBUG")
-	v = strings.ToLower(strings.TrimSpace(v))
-	// Check both environment variable and global verbose flag
-	debug := v == "1" || v == "true" || v == "yes" || v == "on" || utils.IsVerbose()
+	debug := getDebugFlag()
 
-	// ensure parent dir exists (useful if path points into a mount)
-	if dir := filepath.Dir(path); dir != "" && dir != "." && dir != "/" {
-		_ = os.MkdirAll(dir, 0o755)
-	}
+	// Ensure parent dir exists (useful if path points into a mount)
+	ensureParentDir(path)
 
 	preferred := journalFromEnv() // WAL by default; override via JF_SQLITE_JOURNAL
 	db, usedMode, err := openSQLiteWithFallback(path, preferred)
@@ -48,10 +41,9 @@ func NewSQLite(path string) (*SQLiteRepo, error) {
 	r := &SQLiteRepo{db: db, log: logger, debug: debug}
 	r.infof("DB open path=%q driver=modernc.org/sqlite journal=%s debug=%v", path, usedMode, debug)
 
-	// health check
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := r.db.PingContext(ctx); err != nil {
+	// Health check
+	ctx := context.Background()
+	if err := pingDB(ctx, r.db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("db ping: %w", err)
 	}

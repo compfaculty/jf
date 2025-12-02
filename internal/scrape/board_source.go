@@ -11,6 +11,7 @@ import (
 	"jf/internal/config"
 	"jf/internal/extract"
 	"jf/internal/models"
+	"jf/internal/utils"
 )
 
 // BoardSource implements JobSource for job board aggregators.
@@ -132,7 +133,7 @@ func (b *BoardSource) ParseJobMetadata(ctx context.Context, listing JobListing) 
 				hostname = strings.TrimPrefix(hostname, "jobs.")
 				hostname = strings.TrimPrefix(hostname, "careers.")
 				if parts := strings.Split(hostname, "."); len(parts) > 0 {
-					metadata.Company = strings.Title(parts[0])
+					metadata.Company = utils.TitleCase(parts[0])
 				}
 				metadata.ApplyURL = listing.URL
 				metadata.ApplyViaPortal = isPortal

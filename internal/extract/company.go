@@ -3,6 +3,7 @@ package extract
 import (
 	"context"
 	"jf/internal/scrape/common"
+	"jf/internal/utils"
 	"net/url"
 	"strings"
 	"time"
@@ -65,14 +66,14 @@ func extractCompanyFromURL(u *url.URL) string {
 	parts := strings.Split(host, ".")
 	if len(parts) > 2 {
 		// Example: company.lever.co -> company
-		return strings.Title(parts[0])
+		return utils.TitleCase(parts[0])
 	}
 
 	// For paths like lever.co/company/job, try to extract from path
 	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(pathParts) > 0 && pathParts[0] != "" {
 		// Could be company name in path
-		return strings.Title(pathParts[0])
+		return utils.TitleCase(pathParts[0])
 	}
 
 	return ""
@@ -221,7 +222,7 @@ func (l *LeverExtractor) FindCompanyName(ctx context.Context, jobURL string, bro
 	// Extract company from path
 	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(pathParts) > 0 && pathParts[0] != "" {
-		return strings.Title(strings.ReplaceAll(pathParts[0], "-", " ")), nil
+		return utils.TitleCase(strings.ReplaceAll(pathParts[0], "-", " ")), nil
 	}
 
 	// Fallback to generic
@@ -247,7 +248,7 @@ func (w *WorkableExtractor) FindCompanyName(ctx context.Context, jobURL string, 
 	if len(pathParts) > 1 && pathParts[0] == "j" {
 		// Skip "j" and get company from subdomain or other path segment
 		if len(pathParts) > 1 {
-			return strings.Title(strings.ReplaceAll(pathParts[1], "-", " ")), nil
+			return utils.TitleCase(strings.ReplaceAll(pathParts[1], "-", " ")), nil
 		}
 	}
 
@@ -273,7 +274,7 @@ func (g *GreenhouseExtractor) FindCompanyName(ctx context.Context, jobURL string
 	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	for i, part := range pathParts {
 		if part == "jobs" && i > 0 {
-			return strings.Title(strings.ReplaceAll(pathParts[i-1], "-", " ")), nil
+			return utils.TitleCase(strings.ReplaceAll(pathParts[i-1], "-", " ")), nil
 		}
 	}
 

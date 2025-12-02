@@ -4,6 +4,9 @@ import (
 	"regexp"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"jf/internal/models"
 )
 
@@ -24,6 +27,16 @@ func Slug(s string) string {
 	return s
 }
 
+// TitleCase converts a string to title case (first letter of each word capitalized).
+// This replaces the deprecated strings.Title() function.
+func TitleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	caser := cases.Title(language.English)
+	return caser.String(s)
+}
+
 // SlugToTitle converts a slug back to a title.
 func SlugToTitle(slug string) string {
 	slug = strings.Trim(slug, "/")
@@ -33,7 +46,7 @@ func SlugToTitle(slug string) string {
 	parts := strings.Split(slug, "/")
 	last := parts[len(parts)-1]
 	last = strings.ReplaceAll(last, "-", " ")
-	return strings.Title(last)
+	return TitleCase(last)
 }
 
 // JoinWS compacts whitespace to single spaces.

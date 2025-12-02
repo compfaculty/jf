@@ -1,13 +1,17 @@
 package repo
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"jf/internal/models"
+	"jf/internal/utils"
+	"log"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
-
-	"context"
+	"time"
 )
 
 // Repo is the storage contract your app depends on.
@@ -137,4 +141,47 @@ func canonicalizeURL(u string) string {
 		uu.Path = strings.TrimRight(uu.Path, "/")
 	}
 	return uu.String()
+}
+
+// Common repository initialization helpers
+
+// getDebugFlag reads the debug flag from environment variable and verbose state.
+func getDebugFlag() bool {
+	v := os.Getenv("JF_DB_DEBUG")
+	v = strings.ToLower(strings.TrimSpace(v))
+	return v == "1" || v == "true" || v == "yes" || v == "on" || utils.IsVerbose()
+}
+
+// ensureParentDir creates the parent directory for a database path if needed.
+func ensureParentDir(path string) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." && dir != "/" {
+		_ = os.MkdirAll(dir, 0o755)
+	}
+}
+
+// pingDB performs a health check on the database connection.
+func pingDB(ctx context.Context, db *sql.DB) error {
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return db.PingContext(pingCtx)
+}
+
+// repoLogger provides common logging methods for repository implementations.
+type repoLogger struct {
+	log   *log.Logger
+	debug bool
+}
+
+// infof logs an info message.
+func (rl *repoLogger) infof(format string, args ...any) {
+	if rl.log != nil {
+		rl.log.Printf("[DB] "+format, args...)
+	}
+}
+
+// debugf logs a debug message if debug mode is enabled.
+func (rl *repoLogger) debugf(format string, args ...any) {
+	if rl.debug && rl.log != nil {
+		rl.log.Printf("[DB][debug] "+format, args...)
+	}
 }

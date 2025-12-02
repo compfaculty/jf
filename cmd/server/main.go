@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"jf/internal/aggregators"
 	"jf/internal/config"
@@ -93,24 +94,25 @@ func main() {
 	router := server.NewRouter(r, sm, aggregatorReg, nil, cfg, wp, broker)
 	h := WithRecovery(WithRequestLogger(router, cfg.Debug))
 
- // Prometheus collectors (register safely to avoid duplicate registration on hot-reload/tests)
- safeRegister := func(c prometheus.Collector) {
-     if err := prometheus.Register(c); err != nil {
-         if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
-             // Ignore duplicates; another part of the app may have registered this already.
-             if *verbose {
-                 log.Printf("[METRICS] collector already registered: %T", c)
-             }
-             return
-         }
-         log.Printf("[METRICS] register error for %T: %v", c, err)
-     }
- }
+	// Prometheus collectors (register safely to avoid duplicate registration on hot-reload/tests)
+	safeRegister := func(c prometheus.Collector) {
+		if err := prometheus.Register(c); err != nil {
+			var alreadyRegistered prometheus.AlreadyRegisteredError
+			if errors.As(err, &alreadyRegistered) {
+				// Ignore duplicates; another part of the app may have registered this already.
+				if *verbose {
+					log.Printf("[METRICS] collector already registered: %T", c)
+				}
+				return
+			}
+			log.Printf("[METRICS] register error for %T: %v", c, err)
+		}
+	}
 
- // Default runtime/process collectors plus our custom jf collector
- safeRegister(collectors.NewGoCollector())
- safeRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
- safeRegister(utils.NewJFCollector())
+	// Default runtime/process collectors plus our custom jf collector
+	safeRegister(collectors.NewGoCollector())
+	safeRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	safeRegister(utils.NewJFCollector())
 
 	httpSrv := &http.Server{
 		Addr:    cfg.Addr(),

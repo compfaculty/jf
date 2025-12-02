@@ -3,6 +3,7 @@ package utils
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // StringPool provides string interning to reduce memory usage for repeated strings
@@ -34,7 +35,7 @@ func (sp *StringPool) Intern(s string) string {
 	sp.mu.RLock()
 	if interned, ok := sp.pool[s]; ok {
 		sp.mu.RUnlock()
-		sp.stats.hits++
+		atomic.AddInt64(&sp.stats.hits, 1)
 		return interned
 	}
 	sp.mu.RUnlock()
@@ -44,12 +45,12 @@ func (sp *StringPool) Intern(s string) string {
 
 	// Double-check after acquiring write lock
 	if interned, ok := sp.pool[s]; ok {
-		sp.stats.hits++
+		atomic.AddInt64(&sp.stats.hits, 1)
 		return interned
 	}
 
 	sp.pool[s] = s
-	sp.stats.misses++
+	atomic.AddInt64(&sp.stats.misses, 1)
 	return s
 }
 
@@ -60,9 +61,8 @@ func InternString(s string) string {
 
 // GetStats returns pool statistics for monitoring
 func (sp *StringPool) GetStats() (hits, misses int64) {
-	sp.mu.RLock()
-	defer sp.mu.RUnlock()
-	return sp.stats.hits, sp.stats.misses
+	// Use atomic loads for thread-safe reads
+	return atomic.LoadInt64(&sp.stats.hits), atomic.LoadInt64(&sp.stats.misses)
 }
 
 // OptimizedStringBuilder provides efficient string building with pre-allocation
