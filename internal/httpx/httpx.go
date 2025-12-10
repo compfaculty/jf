@@ -1,6 +1,8 @@
 package httpx
 
 import (
+	"context"
+	"errors"
 	"io"
 	"math"
 	"math/rand"
@@ -152,6 +154,11 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 				}
 			}
 			return resp, nil
+		} else if err != nil {
+			// Normalize timeout-related errors so callers/tests can reliably detect them
+			if isTimeoutErr(err, req.Context()) {
+				return nil, context.DeadlineExceeded
+			}
 		}
 
 		if resp != nil && shouldRetryStatus(resp.StatusCode) {
@@ -190,12 +197,37 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		if utils.IsVerbose() {
 			utils.Verbosef("HTTP error after %d attempts: %s %s -> %v (dur=%s)", c.retryN, req.Method, req.URL.String(), err, time.Since(start))
 		}
+		// Final normalization for timeout-like errors before returning
+		if isTimeoutErr(err, req.Context()) {
+			return nil, context.DeadlineExceeded
+		}
 		return nil, err
 	}
 	if resp != nil && utils.IsVerbose() {
 		utils.Verbosef("HTTP final response: %s %s -> %d (dur=%s)", req.Method, req.URL.String(), resp.StatusCode, time.Since(start))
 	}
 	return resp, nil
+}
+
+// isTimeoutErr determines if error is timeout-related, considering context as well.
+func isTimeoutErr(err error, ctx context.Context) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return true
+	}
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		return true
+	}
+	// Fallback to string match that net/http uses for client timeouts
+	if strings.Contains(err.Error(), "Client.Timeout exceeded") {
+		return true
+	}
+	return false
 }
 
 func (c *Client) backoffDelay(attempt int) time.Duration {

@@ -301,7 +301,19 @@ func (cb *CircuitBreaker) GetStats() (failures, successes int64, state string) {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
 
-	return cb.failures, cb.successCount, cb.GetState()
+	var stateStr string
+	switch cb.state {
+	case 0:
+		stateStr = "closed"
+	case 1:
+		stateStr = "open"
+	case 2:
+		stateStr = "half-open"
+	default:
+		stateStr = "unknown"
+	}
+
+	return cb.failures, cb.successCount, stateStr
 }
 
 // RateLimiter provides rate limiting functionality

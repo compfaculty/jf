@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -38,7 +37,6 @@ type Metrics struct {
 
 	// Timing metrics
 	StartTime time.Time
-	mu        sync.RWMutex
 }
 
 // Global metrics instance

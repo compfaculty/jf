@@ -1,10 +1,14 @@
 package server
 
 import (
+	"compress/gzip"
 	"context"
+	"crypto/md5"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -36,6 +40,49 @@ import (
 //go:embed gui.html
 var content embed.FS
 
+// guiETag stores the computed ETag for the embedded GUI
+var guiETag string
+var guiContent []byte
+
+func init() {
+	// Pre-compute ETag for embedded GUI
+	data, _ := fs.ReadFile(content, "gui.html")
+	if len(data) > 0 {
+		guiContent = data
+		hash := md5.Sum(data)
+		guiETag = `"` + hex.EncodeToString(hash[:]) + `"`
+	}
+}
+
+// gzipResponseWriter wraps http.ResponseWriter with gzip compression
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+// GzipMiddleware compresses responses for clients that support gzip
+func GzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		defer gz.Close()
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length")
+		next.ServeHTTP(gzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
+	})
+}
+
 func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Registry, fm *feed.Monitor, cfg *config.Config, wp *pond.WorkerPool, broker *Broker) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(cors.Handler(cors.Options{
@@ -45,6 +92,7 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
+	mux.Use(GzipMiddleware)
 
 	// Static SPA
 	mux.Get("/", serveIndex)
@@ -619,13 +667,25 @@ func listCVFiles(dir string) ([]map[string]string, error) {
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
-	_, err := content.Open("gui.html")
-	if err != nil {
+	if len(guiContent) == 0 {
 		http.Error(w, "missing UI", http.StatusInternalServerError)
 		return
 	}
-	statics, _ := fs.ReadFile(content, "gui.html")
+
+	// Set caching headers
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+	w.Header().Set("Vary", "Accept-Encoding")
+
+	// ETag support for conditional requests
+	if guiETag != "" {
+		w.Header().Set("ETag", guiETag)
+		if r.Header.Get("If-None-Match") == guiETag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(statics)
+	_, _ = w.Write(guiContent)
 }
