@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -40,6 +41,22 @@ import (
 //go:embed gui.html
 var content embed.FS
 
+// applyMu guards applyRunning and applyStatus.
+var applyMu sync.Mutex
+var applyRunning bool
+
+// applyStatus holds progress for the current apply run (for GET /api/apply/status).
+var applyStatus struct {
+	mu      sync.RWMutex
+	Total   int `json:"total"`
+	Sent    int `json:"sent"`
+	Failed  int `json:"failed"`
+	Waiting int `json:"waiting"` // jobs queued for 429 retry
+}
+
+const applyDelayMinSec = 8
+const applyDelayMaxSec = 20
+
 // guiETag stores the computed ETag for the embedded GUI
 var guiETag string
 var guiContent []byte
@@ -64,10 +81,12 @@ func (w gzipResponseWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }
 
-// GzipMiddleware compresses responses for clients that support gzip
+// GzipMiddleware compresses responses for clients that support gzip.
+// Skips compression for SSE streams (/api/scan/stream) because gzip buffers
+// output and blocks real-time delivery of apply_progress/apply_complete events.
 func GzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		if r.URL.Path == "/api/scan/stream" || !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -112,6 +131,30 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 			Found:     st.Found,
 			Total:     st.Total,
 			Error:     st.Error,
+		})
+	})
+
+	mux.Get("/api/apply/status", func(w http.ResponseWriter, _ *http.Request) {
+		applyMu.Lock()
+		running := applyRunning
+		applyMu.Unlock()
+		applyStatus.mu.RLock()
+		sent := applyStatus.Sent
+		failed := applyStatus.Failed
+		waiting := applyStatus.Waiting
+		total := applyStatus.Total
+		applyStatus.mu.RUnlock()
+		queued := total - sent - failed - waiting
+		if queued < 0 {
+			queued = 0
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"running": running,
+			"total":   total,
+			"sent":    sent,
+			"failed":  failed,
+			"waiting": waiting,
+			"queued":  queued,
 		})
 	})
 
@@ -287,27 +330,38 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 			return
 		}
 
+		applyMu.Lock()
+		if applyRunning {
+			applyMu.Unlock()
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "apply already in progress"})
+			return
+		}
+		applyRunning = true
+		applyMu.Unlock()
+
 		jobs, err := r.ListJobsByIDs(req.Context(), body.IDs)
 		if err != nil {
+			applyMu.Lock()
+			applyRunning = false
+			applyMu.Unlock()
 			log.Printf("[APPLY] db ListJobsByIDs error: %v", err)
 			http.Error(w, "db error", http.StatusInternalServerError)
 			return
 		}
 		log.Printf("[APPLY] loaded %d jobs", len(jobs))
 		if len(jobs) == 0 {
+			applyMu.Lock()
+			applyRunning = false
+			applyMu.Unlock()
 			writeJSON(w, http.StatusOK, map[string]any{"updated": 0})
 			return
 		}
 
-		okIDs := make([]string, 0, len(jobs))
-		fail := 0
-
-		// Per-request group bound to the client's context (deadline/cancel-friendly)
-		group, gctx := wp.GroupContext(req.Context())
-
-		// Load companies and aggregators for source lookup
 		companies, err := r.ListCompanies(req.Context())
 		if err != nil {
+			applyMu.Lock()
+			applyRunning = false
+			applyMu.Unlock()
 			log.Printf("[APPLY] ListCompanies error: %v", err)
 			http.Error(w, "db error", http.StatusInternalServerError)
 			return
@@ -323,75 +377,95 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 			aggregatorMap[a.Name] = a
 		}
 
-		// Create feed parser for RSS sources (use default HTTP client)
 		feedParser := feed.NewParser(http.DefaultClient)
-		var bp commonpkg.Browser // nil - browser pool not available in router, fallback will work
+		var bp commonpkg.Browser
 
-		var mu sync.Mutex
-		for i := range jobs {
-			j := jobs[i] // capture
-			group.Submit(func() error {
-				select {
-				case <-gctx.Done():
-					return gctx.Err()
-				default:
+		writeJSON(w, http.StatusAccepted, map[string]any{"status": "started", "total": len(jobs)})
+
+		go func() {
+			total := len(jobs)
+			applyMu.Lock()
+			applyRunning = true
+			applyMu.Unlock()
+			applyStatus.mu.Lock()
+			applyStatus.Total = total
+			applyStatus.Sent = 0
+			applyStatus.Failed = 0
+			applyStatus.Waiting = 0
+			applyStatus.mu.Unlock()
+			defer func() {
+				applyMu.Lock()
+				applyRunning = false
+				applyMu.Unlock()
+			}()
+
+			ctx := context.Background()
+			okIDs := make([]string, 0, total)
+			sent := 0
+			fail := 0
+			waiting := 0
+
+			waitHours := 2
+			if v := os.Getenv("JF_RATE_LIMIT_WAIT_HOURS"); v != "" {
+				if h, err := strconv.Atoi(v); err == nil && h > 0 {
+					waitHours = h
 				}
+			}
+			rateLimitBackoff := time.Duration(waitHours) * time.Hour
+
+			for i := range jobs {
+				j := jobs[i]
+				queued := total - sent - fail
 
 				log.Printf("[APPLY] start job id=%s url=%s title=%q", j.ID, j.URL, j.Title)
 
 				ok := false
 				errMsg := ""
+				var result *models.AppliedResult
 
-				// Determine source type and create appropriate JobSource
 				var source scrape.JobSource
 				if j.AggregatorName != "" {
-					// Job is from an aggregator (board or RSS)
 					if agg, exists := aggregatorMap[j.AggregatorName]; exists {
-						// Get or create company for aggregator
 						company := models.Company{
 							Name:       agg.Name,
 							CareersURL: agg.SourceURL,
 							Active:     agg.Active,
 						}
-						if err := r.UpsertCompanyByName(gctx, &company); err == nil {
+						if err := r.UpsertCompanyByName(ctx, &company); err == nil {
 							source = scrape.NewJobSource(company, &agg, http.DefaultClient, bp, wp, feedParser, r)
 						}
 					}
 				} else if j.CompanyID != "" {
-					// Job is from a direct company
 					if company, exists := companyMap[j.CompanyID]; exists {
 						source = scrape.NewJobSource(company, nil, http.DefaultClient, bp, wp, feedParser, r)
 					}
 				}
 
-				// Fallback: if source not found, try to match by job URL pattern
 				if source == nil && j.URL != "" {
 					if agg := findAggregatorByURL(j.URL, aggregators); agg != nil {
-						// Get or create company for aggregator
 						company := models.Company{
 							Name:       agg.Name,
 							CareersURL: agg.SourceURL,
 							Active:     agg.Active,
 						}
-						if err := r.UpsertCompanyByName(gctx, &company); err == nil {
+						if err := r.UpsertCompanyByName(ctx, &company); err == nil {
 							source = scrape.NewJobSource(company, agg, http.DefaultClient, bp, wp, feedParser, r)
 							log.Printf("[APPLY] id=%s found source via URL fallback: %s", j.ID, agg.Name)
 						}
 					}
 				}
 
-				// If we have HR email on the job, prefer emailing CV directly
+				cvPath := strings.TrimSpace(body.CVPath)
 				if strings.TrimSpace(j.HREmail) != "" {
-					cvPath := strings.TrimSpace(body.CVPath)
-					ok, errMsg = applyViaEmail(gctx, j, cfg, cvPath)
+					ok, errMsg = applyViaEmail(ctx, j, cfg, cvPath)
 					if ok {
 						log.Printf("[APPLY][EMAIL] id=%s to=%s ok", j.ID, j.HREmail)
 					} else {
 						log.Printf("[APPLY][EMAIL] id=%s err=%s", j.ID, errMsg)
 					}
 				} else if source != nil {
-					// Use JobSource.ApplyJob method
-					result, err := source.ApplyJob(gctx, j, cfg)
+					var err error
+					result, err = source.ApplyJob(ctx, j, cfg)
 					if err != nil {
 						errMsg = "ApplyJob error: " + err.Error()
 						log.Printf("[APPLY] id=%s err=%s", j.ID, errMsg)
@@ -401,8 +475,17 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 							errMsg = result.Message
 						}
 						log.Printf("[APPLY] id=%s ok=%v status=%d msg=%q", j.ID, result.OK, result.Status, result.Message)
+						// 429: enqueue for retry, do not count as fail
+						if !ok && result.Status == 429 {
+							retryAfter := time.Now().UTC().Add(rateLimitBackoff)
+							if enqErr := r.EnqueueRateLimited(ctx, j.ID, j.URL, retryAfter); enqErr != nil {
+								log.Printf("[APPLY] id=%s EnqueueRateLimited error: %v", j.ID, enqErr)
+							} else {
+								waiting++
+								log.Printf("[APPLY] id=%s rate-limited (429), queued for retry at %s", j.ID, retryAfter.Format(time.RFC3339))
+							}
+						}
 					} else {
-						// ApplyJob returned nil - not supported (graceful degradation)
 						errMsg = "apply not supported for this source"
 						log.Printf("[APPLY] id=%s unsupported", j.ID)
 					}
@@ -411,10 +494,11 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 					log.Printf("[APPLY] id=%s err=%s", j.ID, errMsg)
 				}
 
-				// Collect results
-				mu.Lock()
 				if ok {
 					okIDs = append(okIDs, j.ID)
+					sent++
+				} else if result != nil && result.Status == 429 {
+					// Already handled above (waiting++), nothing more
 				} else {
 					fail++
 					if errMsg != "" {
@@ -423,28 +507,43 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 						log.Printf("[APPLY] failed id=%s url=%s err=unknown", j.ID, j.URL)
 					}
 				}
-				mu.Unlock()
-				return nil
-			})
-		}
 
-		// Wait for all tasks or client cancel/timeout
-		_ = group.Wait()
+				queued = total - sent - fail - waiting
+				applyStatus.mu.Lock()
+				applyStatus.Sent = sent
+				applyStatus.Failed = fail
+				applyStatus.Waiting = waiting
+				applyStatus.mu.Unlock()
+				if broker != nil {
+					broker.SendApplyProgress(queued, sent, fail, waiting, j.Title)
+				}
 
-		var updated int64
-		if len(okIDs) > 0 {
-			n, err := r.ApplyJobs(req.Context(), okIDs)
-			if err != nil {
-				log.Printf("[APPLY] db ApplyJobs error: %v", err)
-			} else {
-				updated = n
+				if i < len(jobs)-1 {
+					delaySec := applyDelayMinSec + rand.Intn(applyDelayMaxSec-applyDelayMinSec+1)
+					select {
+					case <-time.After(time.Duration(delaySec) * time.Second):
+					case <-ctx.Done():
+						log.Printf("[APPLY] cancelled")
+						return
+					}
+				}
 			}
-		}
 
-		log.Printf("[APPLY] done attempted=%d success=%d fail=%d updated=%d",
-			len(jobs), len(okIDs), fail, updated)
+			var updated int64
+			if len(okIDs) > 0 {
+				n, err := r.ApplyJobs(ctx, okIDs)
+				if err != nil {
+					log.Printf("[APPLY] db ApplyJobs error: %v", err)
+				} else {
+					updated = n
+				}
+			}
 
-		writeJSON(w, http.StatusOK, map[string]any{"updated": updated})
+			log.Printf("[APPLY] done attempted=%d success=%d fail=%d updated=%d", total, len(okIDs), fail, updated)
+			if broker != nil {
+				broker.SendApplyComplete(int(updated), fail)
+			}
+		}()
 	})
 
 	mux.Post("/api/delete", func(w http.ResponseWriter, req *http.Request) {

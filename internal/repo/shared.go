@@ -32,6 +32,12 @@ type Repo interface {
 	DeleteJobs(ctx context.Context, ids []string) (int64, error)
 	ListJobsByIDs(ctx context.Context, ids []string) ([]models.Job, error)
 	JobURLExists(ctx context.Context, url string) (bool, error)
+
+	// Rate limit queue (429 retry)
+	EnqueueRateLimited(ctx context.Context, jobID, url string, retryAfter time.Time) error
+	ListRateLimitedReady(ctx context.Context) ([]models.RateLimitedEntry, error)
+	DequeueRateLimited(ctx context.Context, jobID string) error
+	UpdateRateLimitedRetry(ctx context.Context, jobID string, retryAfter time.Time) error
 }
 
 // SeedCompanies loads the embedded list and upserts by name (engine-agnostic).

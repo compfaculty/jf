@@ -45,6 +45,7 @@ a{color:inherit;text-decoration:none}button{font:inherit;cursor:pointer;border:n
 .job-meta span{display:flex;align-items:center;gap:4px}
 .pill{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:500;background:var(--bg3);border:1px solid var(--border)}
 .pill.ok{color:var(--accent);border-color:var(--accent);background:rgba(16,185,129,.1)}
+.pill.warn{color:#d97706;border-color:#d97706;background:rgba(217,119,6,.15)}
 .pager{display:flex;gap:8px;align-items:center;margin-top:16px;justify-content:center}
 .pager button{padding:8px 14px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);color:var(--fg);font-size:13px;transition:all .15s}
 .pager button:hover:not(:disabled){border-color:var(--accent)}.pager button:disabled{opacity:.3;cursor:not-allowed}
@@ -81,7 +82,7 @@ a{color:inherit;text-decoration:none}button{font:inherit;cursor:pointer;border:n
 <script>
 (function(){var $=function(s){return document.querySelector(s)},$$=function(s){return Array.from(document.querySelectorAll(s))},L=localStorage,D=document,B=document.body;
 var tog=$('#tog'),side=$('#side'),q=$('#q'),lim=$('#lim'),bar=$('#bar'),list=$('#list'),status=$('#status'),scanBtn=$('#scanBtn'),refBtn=$('#refBtn'),prevBtn=$('#prevBtn'),nextBtn=$('#nextBtn'),pgInfo=$('#pgInfo'),selAll=$('#selAll'),selCnt=$('#selCnt'),appBtn=$('#appBtn'),delBtn=$('#delBtn'),hideApp=$('#hideApp'),cvList=$('#cvList'),cvFile=$('#cvFile'),cvBtn=$('#cvBtn'),toast=$('#toast'),tT=$('#tT'),tM=$('#tM');
-var poll=null,sse=null,lmt=+L.getItem('jf.l')||25,off=0,tot=0,ab=null,cv=L.getItem('jf.cv')||'',esc={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+var poll=null,sse=null,lmt=+L.getItem('jf.l')||25,off=0,tot=0,ab=null,cv=L.getItem('jf.cv')||'',applying=false,applyTimeoutId=null,applyPollId=null,esc={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
 function e(s){return(s||'').replace(/[&<>"']/g,function(m){return esc[m]})}
 function msg(t,m,err){tT.textContent=t;tM.textContent=m;toast.className='toast'+(err?' err':'');toast.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(function(){toast.hidden=true},3500)}
 function json(u,o){return fetch(u,o).then(function(r){if(!r.ok)throw new Error(r.statusText);return r.headers.get('content-type')?.includes('json')?r.json():r.text()})}
@@ -99,11 +100,15 @@ cvBtn.disabled=true;cvBtn.textContent='Uploading…';
 var fd=new FormData();fd.append('file',f);
 fetch('/api/cv/upload',{method:'POST',body:fd}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){msg('Uploaded',d.filename);loadCV();cv=d.path;L.setItem('jf.cv',cv)}).catch(function(){msg('Error','Upload failed',1)}).finally(function(){cvBtn.disabled=false;cvBtn.textContent='+ Upload CV';cvFile.value=''})};
 scanBtn.onclick=function(){json('/api/scan/start',{method:'POST'}).then(function(){status.textContent='Scanning…';if(poll)clearInterval(poll);poll=setInterval(ps,600);openSSE();msg('Started','Scan running')}).catch(function(e){msg('Error',e.message||'Failed',1)})};
-function openSSE(){if(sse)sse.close();if(off||q.value.trim()||hideApp.checked)return;
-sse=new EventSource('/api/scan/stream');
-sse.addEventListener('job_found',function(e){try{var j=JSON.parse(e.data);if(!off&&!q.value.trim()&&!hideApp.checked)addJob(j)}catch(x){}});
-sse.addEventListener('scan_complete',function(e){try{var d=JSON.parse(e.data);closeSSE();load();msg('Done','Found '+d.total_found+' jobs')}catch(x){}});
+function addSSEListeners(){if(!sse)return;
+sse.addEventListener('job_found',function(ev){try{var j=JSON.parse(ev.data);if(!off&&!q.value.trim()&&!hideApp.checked)addJob(j)}catch(x){}});
+sse.addEventListener('scan_complete',function(ev){try{var d=JSON.parse(ev.data);closeSSE();load();msg('Done','Found '+d.total_found+' jobs')}catch(x){}});
+sse.addEventListener('apply_progress',function(ev){try{var d=JSON.parse(ev.data);var w=d.waiting||0;status.textContent='Apply: '+d.sent+' sent, '+d.queued+' queued'+(d.failed?'; '+d.failed+' failed':'')+(w?'; '+w+' waiting (429)':'')}catch(x){}});
+sse.addEventListener('apply_complete',function(ev){try{if(applyTimeoutId){clearTimeout(applyTimeoutId);applyTimeoutId=null}if(applyPollId){clearInterval(applyPollId);applyPollId=null}var d=JSON.parse(ev.data);applying=false;appBtn.textContent='Apply';msg('Applied','Updated '+d.updated+' job(s)'+(d.failed?'; '+d.failed+' failed':''));status.textContent='Ready';load()}catch(x){}});
 sse.onerror=function(){if(!poll)closeSSE()}}
+function openSSE(){if(sse)sse.close();if(off||q.value.trim()||hideApp.checked)return;
+sse=new EventSource('/api/scan/stream');addSSEListeners()}
+function ensureApplySSE(){if(sse)return Promise.resolve();sse=new EventSource('/api/scan/stream');addSSEListeners();return new Promise(function(r){sse.onopen=function(){r()}})}
 function closeSSE(){if(sse){sse.close();sse=null}}
 function ps(){json('/api/scan/status').then(function(s){bar.style.width=s.percent+'%';status.textContent=s.running?'Scanning: '+s.percent+'% ('+s.found+' new)':'Idle';if(!s.running&&poll){clearInterval(poll);poll=null;closeSSE();load()}}).catch(function(){})}
 lim.onchange=function(){lmt=+lim.value||25;L.setItem('jf.l',lmt);off=0;load()};
@@ -116,25 +121,32 @@ q.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();off=0;load()}};
 function load(){selAll.checked=false;upd();skel();
 var p=new URLSearchParams();if(q.value.trim())p.set('q',q.value.trim());if(hideApp.checked)p.set('hide_applied','true');p.set('limit',lmt);p.set('offset',off);
 if(ab)ab.abort();ab=new AbortController();
-json('/api/jobs?'+p,{signal:ab.signal}).then(function(r){tot=r.total||0;lmt=r.limit||lmt;off=r.offset||0;render(r.items||[]);pager()}).catch(function(e){if(e.name!=='AbortError'){msg('Error','Load failed',1);list.innerHTML='<p class="meta">Failed to load</p>'}})}
+json('/api/jobs?'+p,{signal:ab.signal}).then(function(r){tot=r.total||0;lmt=r.limit||lmt;off=r.offset||0;render(r.items||[]);pager();upd()}).catch(function(e){if(e.name!=='AbortError'){msg('Error','Load failed',1);list.innerHTML='<p class="meta">Failed to load</p>'}})}
 function pager(){var pg=Math.floor(off/lmt)+1,pgs=Math.max(1,Math.ceil(tot/lmt));pgInfo.textContent='Page '+pg+' / '+pgs+' ('+tot+' total)';prevBtn.disabled=off<=0;nextBtn.disabled=off+lmt>=tot}
 function skel(){list.innerHTML='';for(var i=0;i<6;i++){var d=D.createElement('div');d.className='job';d.innerHTML='<div><div class="skel" style="width:16px;height:16px;border-radius:4px"></div></div><div><div class="skel" style="width:70%;margin-bottom:8px"></div><div class="skel" style="width:50%"></div></div><div></div>';list.appendChild(d)}}
 function render(jobs){list.innerHTML='';if(!jobs.length){list.innerHTML='<p class="meta" style="text-align:center;padding:40px">No jobs found</p>';return}
 var f=D.createDocumentFragment();for(var i=0;i<jobs.length;i++)f.appendChild(row(jobs[i]));list.appendChild(f)}
-function row(j){var ok=!!j.applied,dt='';if(j.posted_at)try{dt=new Date(j.posted_at).toLocaleDateString()}catch(x){dt=j.posted_at}
-var d=D.createElement('div');d.className='job';d.innerHTML='<div><input type="checkbox" data-id="'+j.id+'" '+(ok?'disabled':'')+' title="Select"></div><div class="job-info"><h4>'+(ok?'✓ ':'')+'<a href="'+(j.url||'#')+'" target="_blank" rel="noopener" class="jl">'+e(j.title||'(untitled)')+'</a></h4><div class="job-meta">'+(j.company_name?'<span>🏢 '+e(j.company_name)+'</span>':'')+(j.aggregator_name?'<span>📌 '+e(j.aggregator_name)+'</span>':'')+(dt?'<span>📅 '+e(dt)+'</span>':'')+'</div></div><div class="job-right"><span class="pill'+(ok?' ok':'')+'>'+(ok?'Applied':'New')+'</span></div>';
+function row(j){var ok=!!j.applied,dt='',pending429=!!j.apply_pending_429,retryAt='';if(j.posted_at)try{dt=new Date(j.posted_at).toLocaleDateString()}catch(x){dt=j.posted_at}
+if(pending429&&j.apply_pending_429)try{retryAt=' retry '+new Date(j.apply_pending_429).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}catch(x){}
+var pillLabel=ok?'Applied':(pending429?'Waiting (429)'+retryAt:'New'),pillClass=ok?' ok':(pending429?' warn':'');
+var d=D.createElement('div');d.className='job';d.innerHTML='<div><input type="checkbox" data-id="'+j.id+'" '+(ok?'disabled':'')+' title="Select"></div><div class="job-info"><h4>'+(ok?'✓ ':'')+'<a href="'+(j.url||'#')+'" target="_blank" rel="noopener" class="jl">'+e(j.title||'(untitled)')+'</a></h4><div class="job-meta">'+(j.company_name?'<span>🏢 '+e(j.company_name)+'</span>':'')+(j.aggregator_name?'<span>📌 '+e(j.aggregator_name)+'</span>':'')+(dt?'<span>📅 '+e(dt)+'</span>':'')+'</div></div><div class="job-right"><span class="pill'+pillClass+'">'+e(pillLabel)+'</span></div>';
 var lnk=d.querySelector('.jl'),cb=d.querySelector('input');
 lnk.onmouseenter=function(ev){showPrev(ev,j)};lnk.onmousemove=movePrev;lnk.onmouseleave=hidePrev;
 cb.onchange=upd;return d}
 function addJob(j){var r=row(j);r.classList.add('new');var f=list.firstChild;if(f&&f.classList.contains('meta'))list.innerHTML='';list.insertBefore(r,list.firstChild);tot++;pager();upd();setTimeout(function(){r.classList.remove('new')},500)}
 selAll.onchange=function(){$$('#list input[type="checkbox"]:not(:disabled)').forEach(function(b){b.checked=selAll.checked});upd()};
 function upd(){var boxes=$$('#list input[type="checkbox"]'),en=boxes.filter(function(b){return!b.disabled}),ck=en.filter(function(b){return b.checked});
-selCnt.textContent=ck.length+' selected';appBtn.disabled=!ck.length;delBtn.disabled=!ck.length&&!boxes.filter(function(b){return b.disabled}).length;
+selCnt.textContent=ck.length+' selected';appBtn.disabled=applying||!ck.length;delBtn.disabled=!ck.length&&!boxes.filter(function(b){return b.disabled}).length;
 var all=en.length>0&&ck.length===en.length;selAll.indeterminate=ck.length>0&&!all;selAll.checked=all}
 function ids(inc){var out=[];$$('#list input[type="checkbox"]').forEach(function(b){if(b.checked||(inc&&b.disabled)){var id=b.getAttribute('data-id');if(id)out.push(id)}});return out}
 appBtn.onclick=function(){var i=ids();if(!i.length)return;
+ensureApplySSE().then(function(){
 var body={ids:i};if(cv)body.cv_path=cv;
-json('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){load();msg('Applied','Updated '+(r.updated||i.length)+' job(s)')}).catch(function(e){msg('Error',e.message||'Failed',1)})};
+fetch('/api/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(res){return res.json().then(function(r){return {status:res.status,body:r}}).catch(function(){return {status:res.status,body:{}}})}).then(function(o){var st=o.status,r=o.body;
+if(st===202){applying=true;appBtn.disabled=true;appBtn.textContent='Applying…';status.textContent='Apply: 0 sent, '+(r.total||i.length)+' queued';function pollApply(){json('/api/apply/status').then(function(d){if(applying&&d){var w=d.waiting||0;status.textContent='Apply: '+d.sent+' sent, '+d.queued+' queued'+(d.failed?'; '+d.failed+' failed':'')+(w?'; '+w+' waiting (429)':'');if(!d.running){if(applyPollId){clearInterval(applyPollId);applyPollId=null}if(applyTimeoutId){clearTimeout(applyTimeoutId);applyTimeoutId=null}applying=false;appBtn.textContent='Apply';load();msg('Done','Updated '+d.sent+' job(s)'+(d.failed?'; '+d.failed+' failed':''));status.textContent='Ready';upd()}}}).catch(function(){})}applyPollId=setInterval(pollApply,1500);pollApply();applyTimeoutId=setTimeout(function(){if(applying){applyTimeoutId=null;if(applyPollId){clearInterval(applyPollId);applyPollId=null}applying=false;appBtn.textContent='Apply';load();msg('Done','Jobs may have been updated');status.textContent='Ready';upd()}},Math.max(60000,i.length*25000+10000))}
+else if(st===409){msg('Error','Apply already in progress',1)}
+else if(st===200){load();msg('Applied','Updated '+(r.updated||0)+' job(s)')}
+else{msg('Error','Apply failed',1)}}).catch(function(e){if(applyPollId){clearInterval(applyPollId);applyPollId=null}applying=false;appBtn.textContent='Apply';upd();msg('Error',e.message||'Failed',1)})})};
 delBtn.onclick=function(){var i=ids(true);if(!i.length)return;if(!confirm('Delete '+i.length+' job(s)?'))return;
 json('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:i})}).then(function(r){load();msg('Deleted','Removed '+(r.deleted||i.length)+' job(s)')}).catch(function(e){msg('Error',e.message||'Failed',1)})};
 var pv=null,ht=null;

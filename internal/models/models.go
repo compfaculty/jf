@@ -13,22 +13,31 @@ type Company struct {
 }
 
 type Job struct {
-	ID             string     `json:"id"`
-	CompanyID      string     `json:"company_id"`
-	CompanyName    string     `json:"company_name,omitempty"`
-	AggregatorName string     `json:"aggregator_name,omitempty"` // Name of aggregator (for display)
-	Title          string     `json:"title"`
-	URL            string     `json:"url"`
-	ApplyURL       string     `json:"apply_url,omitempty"`        // HR portal URL for redirect
-	ApplyViaPortal bool       `json:"apply_via_portal,omitempty"` // Flag for portal jobs
-	Location       string     `json:"location"`
-	Description    string     `json:"description"`
-	HREmail        string     `json:"hr_email,omitempty"`
-	HRPhone        string     `json:"hr_phone,omitempty"`
-	DiscoveredAt   time.Time  `json:"discovered_at"`
-	PostedAt       string     `json:"posted_at,omitempty"` // When the job was posted on the internet (ISO format string)
-	Applied        bool       `json:"applied"`
-	AppliedAt      *time.Time `json:"applied_at,omitempty"`
+	ID               string     `json:"id"`
+	CompanyID        string     `json:"company_id"`
+	CompanyName      string     `json:"company_name,omitempty"`
+	AggregatorName   string     `json:"aggregator_name,omitempty"` // Name of aggregator (for display)
+	Title            string     `json:"title"`
+	URL              string     `json:"url"`
+	ApplyURL         string     `json:"apply_url,omitempty"`        // HR portal URL for redirect
+	ApplyViaPortal   bool       `json:"apply_via_portal,omitempty"` // Flag for portal jobs
+	Location         string     `json:"location"`
+	Description      string     `json:"description"`
+	HREmail          string     `json:"hr_email,omitempty"`
+	HRPhone          string     `json:"hr_phone,omitempty"`
+	DiscoveredAt     time.Time  `json:"discovered_at"`
+	PostedAt         string     `json:"posted_at,omitempty"` // When the job was posted on the internet (ISO format string)
+	Applied          bool       `json:"applied"`
+	AppliedAt        *time.Time `json:"applied_at,omitempty"`
+	ApplyPending429  *time.Time `json:"apply_pending_429,omitempty"` // When to retry if rate-limited (429)
+}
+
+// RateLimitedEntry represents a job queued for retry after HTTP 429.
+type RateLimitedEntry struct {
+	JobID      string    `json:"job_id"`
+	URL        string    `json:"url"`
+	RetryAfter time.Time `json:"retry_after"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // JobQuery Filters for GET /api/jobs

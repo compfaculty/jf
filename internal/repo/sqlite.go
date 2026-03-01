@@ -157,6 +157,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_company_canon_uq
 CREATE INDEX IF NOT EXISTS idx_jobs_discovered_at ON jobs(discovered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_company_id    ON jobs(company_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_canonical_url ON jobs(canonical_url);
+
+CREATE TABLE IF NOT EXISTS apply_rate_limit_queue(
+  job_id      TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+  url         TEXT NOT NULL,
+  retry_after TIMESTAMP NOT NULL,
+  created_at  TIMESTAMP NOT NULL,
+  last_error  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_retry ON apply_rate_limit_queue(retry_after);
 `
 	start := time.Now()
 	if _, err := r.exec(context.Background(), schema); err != nil {
@@ -372,6 +381,57 @@ func (r *SQLiteRepo) ApplyJobs(ctx context.Context, ids []string) (int64, error)
 	return n, nil
 }
 
+// EnqueueRateLimited inserts or replaces an entry in the rate limit queue (429 retry).
+func (r *SQLiteRepo) EnqueueRateLimited(ctx context.Context, jobID, url string, retryAfter time.Time) error {
+	now := time.Now().UTC()
+	//goland:noinspection SqlResolve
+	q := `INSERT INTO apply_rate_limit_queue(job_id, url, retry_after, created_at)
+VALUES(?,?,?,?)
+ON CONFLICT(job_id) DO UPDATE SET url=excluded.url, retry_after=excluded.retry_after`
+	_, err := r.exec(ctx, q, jobID, url, retryAfter, now)
+	if err != nil {
+		r.infof("EnqueueRateLimited err job_id=%s err=%v", jobID, err)
+		return err
+	}
+	r.debugf("EnqueueRateLimited ok job_id=%s retry_after=%s", jobID, retryAfter.Format(time.RFC3339))
+	return nil
+}
+
+// ListRateLimitedReady returns entries where retry_after <= now.
+func (r *SQLiteRepo) ListRateLimitedReady(ctx context.Context) ([]models.RateLimitedEntry, error) {
+	now := time.Now().UTC()
+	//goland:noinspection SqlResolve
+	q := `SELECT job_id, url, retry_after, created_at FROM apply_rate_limit_queue WHERE retry_after <= ? ORDER BY retry_after`
+	rows, err := r.db.QueryContext(ctx, q, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.RateLimitedEntry
+	for rows.Next() {
+		var e models.RateLimitedEntry
+		if err := rows.Scan(&e.JobID, &e.URL, &e.RetryAfter, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// DequeueRateLimited removes a job from the rate limit queue.
+func (r *SQLiteRepo) DequeueRateLimited(ctx context.Context, jobID string) error {
+	//goland:noinspection SqlResolve
+	_, err := r.exec(ctx, `DELETE FROM apply_rate_limit_queue WHERE job_id = ?`, jobID)
+	return err
+}
+
+// UpdateRateLimitedRetry sets retry_after for an existing queue entry.
+func (r *SQLiteRepo) UpdateRateLimitedRetry(ctx context.Context, jobID string, retryAfter time.Time) error {
+	//goland:noinspection SqlResolve
+	_, err := r.exec(ctx, `UPDATE apply_rate_limit_queue SET retry_after = ? WHERE job_id = ?`, retryAfter, jobID)
+	return err
+}
+
 // ListJobsPage returns jobs for the query and the total count for pagination.
 //
 //goland:noinspection SqlResolve,SqlNoDataSourceInspection,SqlDialectInspection
@@ -422,7 +482,7 @@ JOIN companies c ON c.id = j.company_id
 		return nil, 0, err
 	}
 
-	// Page query with company name and aggregator name
+	// Page query with company name, aggregator name, and rate-limit retry status
 	pageSQL := fmt.Sprintf(`
 SELECT j.id,
        j.company_id,
@@ -439,9 +499,11 @@ SELECT j.id,
        j.discovered_at,
        j.posted_at,
        j.applied,
-       j.applied_at
+       j.applied_at,
+       q.retry_after
 FROM jobs j
 JOIN companies c ON c.id = j.company_id
+LEFT JOIN apply_rate_limit_queue q ON j.id = q.job_id
 %s
 ORDER BY j.discovered_at DESC
 LIMIT ? OFFSET ?`, whereSQL)
@@ -460,11 +522,13 @@ LIMIT ? OFFSET ?`, whereSQL)
 		var applyViaPortalInt int
 		var appliedAt sql.NullTime
 		var postedAt sql.NullString
+		var retryAfter sql.NullTime
 		var aggregatorName string
 		if err = rows.Scan(
 			&j.ID, &j.CompanyID, &j.CompanyName, &aggregatorName, &j.Title, &j.URL, &j.ApplyURL, &applyViaPortalInt,
 			&j.Location, &j.Description, &j.HREmail, &j.HRPhone,
 			&j.DiscoveredAt, &postedAt, &appliedInt, &appliedAt,
+			&retryAfter,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -477,6 +541,10 @@ LIMIT ? OFFSET ?`, whereSQL)
 		if appliedAt.Valid {
 			t := appliedAt.Time
 			j.AppliedAt = &t
+		}
+		if retryAfter.Valid {
+			t := retryAfter.Time
+			j.ApplyPending429 = &t
 		}
 		out = append(out, j)
 	}
@@ -512,15 +580,15 @@ func (r *SQLiteRepo) DeleteJobs(ctx context.Context, ids []string) (int64, error
 	return res.RowsAffected()
 }
 
-// ListJobsByIDs returns a minimal view of jobs for given IDs.
-// We only need ID, Title, URL, hr_email, apply_url, and apply_via_portal for applying.
+// ListJobsByIDs returns jobs for given IDs. Includes company_id and aggregator_name for source resolution.
 func (r *SQLiteRepo) ListJobsByIDs(ctx context.Context, ids []string) ([]models.Job, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
 	ph := strings.Repeat("?,", len(ids))
 	ph = ph[:len(ph)-1]
-	q := fmt.Sprintf(`SELECT id, title, url, hr_email, hr_phone, apply_url, apply_via_portal FROM jobs WHERE id IN (%s)`, ph)
+	//goland:noinspection SqlResolve
+	q := fmt.Sprintf(`SELECT id, company_id, aggregator_name, title, url, hr_email, hr_phone, apply_url, apply_via_portal, applied FROM jobs WHERE id IN (%s)`, ph)
 
 	args := make([]any, len(ids))
 	for i, id := range ids {
@@ -536,11 +604,12 @@ func (r *SQLiteRepo) ListJobsByIDs(ctx context.Context, ids []string) ([]models.
 	out := make([]models.Job, 0, len(ids))
 	for rows.Next() {
 		var j models.Job
-		var applyViaPortalInt int
-		if err := rows.Scan(&j.ID, &j.Title, &j.URL, &j.HREmail, &j.HRPhone, &j.ApplyURL, &applyViaPortalInt); err != nil {
+		var applyViaPortalInt, appliedInt int
+		if err := rows.Scan(&j.ID, &j.CompanyID, &j.AggregatorName, &j.Title, &j.URL, &j.HREmail, &j.HRPhone, &j.ApplyURL, &applyViaPortalInt, &appliedInt); err != nil {
 			return nil, err
 		}
 		j.ApplyViaPortal = applyViaPortalInt == 1
+		j.Applied = appliedInt == 1
 		out = append(out, j)
 	}
 	if err := rows.Err(); err != nil {

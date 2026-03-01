@@ -94,6 +94,9 @@ func main() {
 	router := server.NewRouter(r, sm, aggregatorReg, nil, cfg, wp, broker)
 	h := WithRecovery(WithRequestLogger(router, cfg.Debug))
 
+	// --- Rate limit retry worker (429 backoff) ---
+	server.StartRateLimitRetryWorker(rootCtx, r, cfg, aggregatorReg, broker, wp)
+
 	// Prometheus collectors (register safely to avoid duplicate registration on hot-reload/tests)
 	safeRegister := func(c prometheus.Collector) {
 		if err := prometheus.Register(c); err != nil {

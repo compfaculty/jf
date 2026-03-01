@@ -13,9 +13,11 @@ import (
 type EventType string
 
 const (
-	EventJobFound     EventType = "job_found"
-	EventScanStatus   EventType = "scan_status"
-	EventScanComplete EventType = "scan_complete"
+	EventJobFound       EventType = "job_found"
+	EventScanStatus     EventType = "scan_status"
+	EventScanComplete   EventType = "scan_complete"
+	EventApplyProgress  EventType = "apply_progress"
+	EventApplyComplete  EventType = "apply_complete"
 )
 
 // Event represents an SSE event
@@ -140,6 +142,33 @@ func (b *Broker) SendScanComplete(totalFound int, duration time.Duration) {
 			"total_found":      totalFound,
 			"duration_seconds": duration.Seconds(),
 			"timestamp":        time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+// SendApplyProgress broadcasts apply progress (queued, sent, failed, waiting, current job title).
+func (b *Broker) SendApplyProgress(queued, sent, failed, waiting int, currentJobTitle string) {
+	b.Broadcast(Event{
+		Type: EventApplyProgress,
+		Data: map[string]interface{}{
+			"queued":   queued,
+			"sent":     sent,
+			"failed":   failed,
+			"waiting":  waiting,
+			"current":  currentJobTitle,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+// SendApplyComplete broadcasts apply run completion (updated and failed counts).
+func (b *Broker) SendApplyComplete(updated, failed int) {
+	b.Broadcast(Event{
+		Type: EventApplyComplete,
+		Data: map[string]interface{}{
+			"updated":   updated,
+			"failed":    failed,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		},
 	})
 }
