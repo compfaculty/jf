@@ -108,7 +108,7 @@ jobs:
         gosec -fmt json -out gosec-report.json ./...
 
     - name: Upload security scan results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: gosec-report
         path: gosec-report.json
@@ -163,7 +163,7 @@ jobs:
         fi
 
     - name: Upload binary
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: jf-server-${{ matrix.os }}
         path: ${{ matrix.os == 'windows-latest' && 'jf-server.exe' || 'jf-server' }}
