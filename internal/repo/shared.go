@@ -30,6 +30,7 @@ type Repo interface {
 	ListJobsPage(ctx context.Context, q models.JobQuery) ([]models.Job, int, error)
 	ListJobs(ctx context.Context, q models.JobQuery) ([]models.Job, error)
 	DeleteJobs(ctx context.Context, ids []string) (int64, error)
+	BanJobs(ctx context.Context, ids []string) (int64, error)
 	ListJobsByIDs(ctx context.Context, ids []string) ([]models.Job, error)
 	JobURLExists(ctx context.Context, url string) (bool, error)
 

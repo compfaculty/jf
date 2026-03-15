@@ -26,10 +26,23 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
+const version = "0.1.0"
+
 func main() {
-	// Parse verbose flag before other initialization
+	// Parse flags that can exit before loading config/DB
 	verbose := flag.Bool("v", false, "Enable verbose logging")
+	showVersion := flag.Bool("version", false, "Print version and exit")
+	showHelp := flag.Bool("help", false, "Print usage and exit")
 	flag.Parse()
+
+	if *showVersion {
+		log.Printf("jf-server %s", version)
+		os.Exit(0)
+	}
+	if *showHelp {
+		flag.Usage()
+		os.Exit(0)
+	}
 
 	// Set global verbose state
 	utils.SetVerbose(*verbose)

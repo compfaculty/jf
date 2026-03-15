@@ -146,7 +146,8 @@ CREATE TABLE IF NOT EXISTS jobs(
   discovered_at  TIMESTAMP NOT NULL,
   posted_at      TEXT,
   applied        INTEGER NOT NULL DEFAULT 0,
-  applied_at     TIMESTAMP
+  applied_at     TIMESTAMP,
+  banned         INTEGER NOT NULL DEFAULT 0
 );
 
 /* One canonicalized posting per company */
@@ -172,6 +173,12 @@ CREATE INDEX IF NOT EXISTS idx_rate_limit_retry ON apply_rate_limit_queue(retry_
 		return err
 	}
 	r.debugf("migrate took %s", time.Since(start))
+
+	// Migration for existing DBs: add banned column if missing
+	if _, err := r.db.ExecContext(context.Background(), `ALTER TABLE jobs ADD COLUMN banned INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+
 	return nil
 }
 
@@ -465,6 +472,8 @@ func (r *SQLiteRepo) ListJobsPage(ctx context.Context, q models.JobQuery) ([]mod
 		where = append(where, "j.applied = 0")
 	}
 
+	where = append(where, "(j.banned = 0 OR j.banned IS NULL)")
+
 	whereSQL := ""
 	if len(where) > 0 {
 		whereSQL = "WHERE " + strings.Join(where, " AND ")
@@ -573,6 +582,24 @@ func (r *SQLiteRepo) DeleteJobs(ctx context.Context, ids []string) (int64, error
 	//goland:noinspection SqlResolve,Annotator
 	q := fmt.Sprintf(`DELETE FROM jobs WHERE id IN (%s)`, placeholders)
 
+	res, err := r.db.ExecContext(ctx, q, anySlice(ids)...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// BanJobs marks jobs as banned (soft delete). Banned jobs stay in DB for scanner deduplication but are excluded from list queries.
+func (r *SQLiteRepo) BanJobs(ctx context.Context, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	//goland:noinspection SqlResolve
+	q := fmt.Sprintf(`UPDATE jobs SET banned = 1 WHERE id IN (%s)`, placeholders)
 	res, err := r.db.ExecContext(ctx, q, anySlice(ids)...)
 	if err != nil {
 		return 0, err

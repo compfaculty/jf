@@ -1,6 +1,6 @@
 # --- Build stage ---
-# Match project toolchain (go 1.25)
-FROM golang:1.25 AS build
+# Match project toolchain (go 1.22)
+FROM golang:1.22 AS build
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download

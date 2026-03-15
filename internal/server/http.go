@@ -562,6 +562,22 @@ func NewRouter(r repo.Repo, sm *scanner.Scanner, aggregatorReg *aggregators.Regi
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": n})
 	})
 
+	mux.Post("/api/ban", func(w http.ResponseWriter, req *http.Request) {
+		var body struct {
+			IDs []string `json:"ids"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		n, err := r.BanJobs(req.Context(), body.IDs)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"banned": n})
+	})
+
 	return mux
 }
 

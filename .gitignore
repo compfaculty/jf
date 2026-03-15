@@ -16,6 +16,8 @@ dist/
 *.log
 *.out
 *.tmp
+benchmark-results.txt
+gosec-report.json
 
 # IDE/editor cruft
 .vscode/
@@ -31,3 +33,4 @@ Thumbs.db
 vendor/   # if you vendor deps (optional, many projects commit it)
 data/*
 data/jobs.db
+sources.yaml

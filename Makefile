@@ -1,6 +1,6 @@
 # Job Finder - Test Coverage Makefile
 
-.PHONY: test test-unit test-integration test-performance benchmark coverage coverage-html coverage-xml clean test-deps
+.PHONY: test test-unit test-integration test-performance benchmark coverage coverage-html coverage-xml clean test-deps ci-benchmark
 
 # Test targets
 test: test-unit test-integration test-performance
@@ -60,7 +60,7 @@ race-test:
 	@echo "Running race condition tests..."
 	go test -race -timeout=60s ./...
 
-# Clean up
+# Clean up (Unix: rm; on Windows use PowerShell or WSL, or run go clean -testcache and delete coverage.* manually)
 clean:
 	@echo "Cleaning up test artifacts..."
 	rm -f coverage.out coverage.html coverage.xml
@@ -81,9 +81,9 @@ ci-test:
 
 ci-benchmark:
 	@echo "Running CI benchmarks..."
-	go test -bench=. -benchmem -benchtime=3s ./internal/utils/...
+	go test -bench=. -benchmem -benchtime=3s ./internal/strutil/... ./internal/utils/... ./internal/repo/... ./internal/httpx/... 2>&1 | tee benchmark-results.txt
 
-# Development targets
+# Development targets (test-watch is Linux-only: requires inotifywait)
 test-watch:
 	@echo "Watching for changes and running tests..."
 	@while true; do \
@@ -129,17 +129,6 @@ coverage-repo:
 	go test -coverprofile=repo.out ./internal/repo/...
 	go tool cover -func=repo.out
 
-# Shodan scraper
-.PHONY: shodan-scraper
-
-shodan-scraper:
-	@echo "Running Shodan IP scraper..."
-	go run cmd/shodan-scraper/main.go
-
-shodan-scraper-build:
-	@echo "Building Shodan IP scraper..."
-	go build -o bin/shodan-scraper cmd/shodan-scraper/main.go
-
 # Help target
 help:
 	@echo "Available targets:"
@@ -158,8 +147,6 @@ help:
 	@echo "  test-deps         - Install test dependencies"
 	@echo "  ci-test           - Run CI test suite"
 	@echo "  ci-benchmark      - Run CI benchmarks"
-	@echo "  test-watch        - Watch for changes and run tests"
+	@echo "  test-watch        - Watch for changes and run tests (Linux only)"
 	@echo "  profile-cpu       - Generate CPU profile"
 	@echo "  profile-mem       - Generate memory profile"
-	@echo "  shodan-scraper    - Run Shodan IP scraper"
-	@echo "  shodan-scraper-build - Build Shodan IP scraper binary"
