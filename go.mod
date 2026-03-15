@@ -5,7 +5,7 @@ go 1.24
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/alitto/pond v1.9.2
-	github.com/chromedp/chromedp v0.14.1
+	github.com/chromedp/chromedp v0.14.2
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-message v0.15.0
 	github.com/go-chi/chi/v5 v5.2.3
