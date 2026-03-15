@@ -8,7 +8,7 @@ require (
 	github.com/chromedp/chromedp v0.14.1
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-message v0.15.0
-	github.com/go-chi/chi/v5 v5.2.3
+	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
 	github.com/google/uuid v1.6.0
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
